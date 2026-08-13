@@ -81,10 +81,6 @@ export async function fetchRealRoute(
   start: MapCoordinates,
   end: MapCoordinates
 ): Promise<RouteData | null> {
-  // Commented out to ensure 100% offline operation and zero data leaks (PDPA compliant)
-  return null;
-
-  /*
   const url = `https://router.project-osrm.org/route/v1/driving/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson`;
   
   try {
@@ -109,7 +105,6 @@ export async function fetchRealRoute(
     console.warn('[RouteService] Failed to fetch OSRM driving route:', error);
     return null;
   }
-  */
 }
 
 /**
@@ -186,10 +181,6 @@ export async function fetchIsochronePolygon(
  * Searches for coordinates by text input using OpenStreetMap's Nominatim geocoding engine.
  */
 export async function searchLocations(query: string): Promise<any[]> {
-  // Commented out to ensure 100% offline operation and zero data leaks (PDPA compliant)
-  return [];
-
-  /*
   if (!query || query.trim().length < 2) return [];
   const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&addressdetails=1`;
   
@@ -208,5 +199,4 @@ export async function searchLocations(query: string): Promise<any[]> {
     console.warn('[RouteService] Nominatim geocoding failed:', error);
     return [];
   }
-  */
 }
