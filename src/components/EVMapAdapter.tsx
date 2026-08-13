@@ -10,6 +10,7 @@ import { getAllRealStations } from '../utils/StationService';
 import { useEVStore } from '../store/useEVStore';
 import { fetchRealRoute, fetchIsochronePolygon } from '../utils/RouteService';
 import { getTheme, mapColors, radius, spacing } from '../theme/tokens';
+import { useResolvedThemeMode } from '../theme/useResolvedThemeMode';
 import { TripPlannerService } from '../features/tripPlanner/TripPlannerService';
 import { SmartTripPlan } from '../features/tripPlanner/types';
 import { buildGoogleMapsDirectionsUrl } from '../utils/NavigationService';
@@ -157,7 +158,8 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
   onTripPlanChange,
 }, ref) => {
   const mapRef = useRef<MapView>(null);
-  const { themeMode, activeVehicle, currentSoC, targetReserveSoC, preferredMaxChargeSoC, isAirConActive } = useEVStore();
+  const { activeVehicle, currentSoC, targetReserveSoC, preferredMaxChargeSoC, isAirConActive } = useEVStore();
+  const themeMode = useResolvedThemeMode();
 
   useImperativeHandle(ref, () => ({
     recenter: handleLocateAndRecenter,

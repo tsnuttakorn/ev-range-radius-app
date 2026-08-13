@@ -33,7 +33,8 @@ interface EVStoreState {
   isAirConActive: boolean;
   userLocation: MapCoordinates;
   savedVehicles: UserEVProfile[];
-  themeMode: 'dark' | 'light';
+  /** 'system' dynamically follows the OS light/dark setting; 'light'/'dark' pin it explicitly. */
+  themeMode: 'dark' | 'light' | 'system';
   /** Recently-selected search results (start/destination), most recent first — reused across both fields so a place picked as a destination once shows up when searching a start point later, and vice versa. */
   recentSearches: RecentSearchItem[];
 }
@@ -49,6 +50,7 @@ interface EVStoreActions {
   updateVehicle: (vehicle: UserEVProfile) => void;
   deleteVehicle: (id: string) => void;
   getCalculationResult: () => RangeCalculationResultWithTime;
+  /** Cycles the theme preference: system -> light -> dark -> system. */
   toggleThemeMode: () => void;
   addRecentSearch: (item: RecentSearchItem) => void;
   removeRecentSearch: (id: string) => void;
@@ -80,7 +82,7 @@ export const useEVStore = create<EVStore>()(
         maxDcChargeKW: v.maxDcChargeKW,
         maxAcChargeKW: v.maxAcChargeKW,
       })),
-      themeMode: 'dark',
+      themeMode: 'system',
       recentSearches: [],
 
       // --- Actions ---
@@ -108,7 +110,11 @@ export const useEVStore = create<EVStore>()(
             state.activeVehicle.id === id ? savedVehicles[0] ?? state.activeVehicle : state.activeVehicle;
           return { savedVehicles: savedVehicles.length > 0 ? savedVehicles : state.savedVehicles, activeVehicle };
         }),
-      toggleThemeMode: () => set((state) => ({ themeMode: state.themeMode === 'dark' ? 'light' : 'dark' })),
+      toggleThemeMode: () =>
+        set((state) => ({
+          themeMode:
+            state.themeMode === 'system' ? 'light' : state.themeMode === 'light' ? 'dark' : 'system',
+        })),
       addRecentSearch: (item) =>
         set((state) => {
           // Move to front if already present rather than allowing duplicates.

@@ -4,6 +4,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import SliderImport from '@react-native-community/slider';
 import { useEVStore } from '../store/useEVStore';
 import { getTheme, radius, spacing } from '../theme/tokens';
+import { useResolvedThemeMode } from '../theme/useResolvedThemeMode';
 import { formatMinutes } from '../utils/formatMinutes';
 import { PRESET_VEHICLES } from '../constants/presetVehicles';
 
@@ -30,8 +31,8 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
     setPreferredMaxChargeSoC,
     toggleAirCon,
     getCalculationResult,
-    themeMode,
   } = useEVStore();
+  const themeMode = useResolvedThemeMode();
 
   const {
     safeRangeKm,

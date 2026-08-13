@@ -6,6 +6,9 @@
 
 export type ThemeMode = 'dark' | 'light';
 
+/** User-facing preference: 'system' dynamically follows the OS appearance setting. */
+export type ThemePreference = ThemeMode | 'system';
+
 export const palette = {
   // Brand / semantic accents — consistent meaning across the whole app.
   brand: '#2dd4bf', // teal — primary EV/eco accent (was cyan #06b6d4)

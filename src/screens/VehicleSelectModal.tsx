@@ -14,6 +14,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useEVStore } from '../store/useEVStore';
 import { UserEVProfile, RatingStandard } from '../types/ev';
 import { getTheme, radius } from '../theme/tokens';
+import { useResolvedThemeMode } from '../theme/useResolvedThemeMode';
 import { PRESET_VEHICLES } from '../constants/presetVehicles';
 
 interface VehicleSelectModalProps {
@@ -21,8 +22,9 @@ interface VehicleSelectModalProps {
 }
 
 export const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ onClose }) => {
-  const { savedVehicles, activeVehicle, setActiveVehicle, addCustomVehicle, updateVehicle, deleteVehicle, themeMode } =
+  const { savedVehicles, activeVehicle, setActiveVehicle, addCustomVehicle, updateVehicle, deleteVehicle } =
     useEVStore();
+  const themeMode = useResolvedThemeMode();
   const t = getTheme(themeMode);
   const scrollRef = useRef<ScrollView>(null);
 

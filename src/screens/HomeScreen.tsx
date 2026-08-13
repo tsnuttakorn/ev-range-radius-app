@@ -12,12 +12,14 @@ import { ChargingStation } from '../utils/StationGenerator';
 import { MapCoordinates } from '../types/ev';
 import { SmartTripPlan } from '../features/tripPlanner/types';
 import { getTheme, radius } from '../theme/tokens';
+import { useResolvedThemeMode } from '../theme/useResolvedThemeMode';
 
 const TypedStatusBar = StatusBar as any;
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export const HomeScreen: React.FC = () => {
-  const { userLocation, setUserLocation, activeVehicle, getCalculationResult, themeMode, toggleThemeMode } = useEVStore();
+  const { userLocation, setUserLocation, activeVehicle, getCalculationResult, themeMode: themePreference, toggleThemeMode } = useEVStore();
+  const themeMode = useResolvedThemeMode();
   const { safeRangeKm, maxRangeKm } = getCalculationResult();
 
   const [vehicleModalVisible, setVehicleModalVisible] = useState(false);
@@ -161,7 +163,11 @@ export const HomeScreen: React.FC = () => {
           onPress={toggleThemeMode}
           activeOpacity={0.85}
         >
-          <FontAwesome name={isLight ? 'moon-o' : 'sun-o'} size={14} color={t.reserve} />
+          <FontAwesome
+            name={themePreference === 'system' ? 'adjust' : isLight ? 'moon-o' : 'sun-o'}
+            size={14}
+            color={t.reserve}
+          />
         </TouchableOpacity>
       </View>
     </View>
