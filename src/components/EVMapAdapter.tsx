@@ -38,6 +38,10 @@ export interface IMapProviderProps {
 
 export interface IMapRef {
   recenter: () => void;
+  /** Pans the camera to the given coordinates without touching GPS/`onCenterChange` — for when the
+   * center has already been set explicitly (e.g. picking a custom start point), where `recenter`
+   * would wrongly re-fetch and snap back to the device's live GPS location. */
+  panTo: (coords: MapCoordinates) => void;
 }
 
 // Wide enough to cover an entire country the size of Thailand (~1,650km at its longest) in one
@@ -163,6 +167,14 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
 
   useImperativeHandle(ref, () => ({
     recenter: handleLocateAndRecenter,
+    panTo: (coords: MapCoordinates) => {
+      if (mapRef.current) {
+        mapRef.current.animateToRegion(
+          { ...coords, latitudeDelta: 0.15, longitudeDelta: 0.15 },
+          1000
+        );
+      }
+    },
   }));
 
   // Track the visible map region — drives both the zoomed-in/out marker style and clustering grid size

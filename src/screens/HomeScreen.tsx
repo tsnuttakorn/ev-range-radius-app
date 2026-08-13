@@ -105,7 +105,7 @@ export const HomeScreen: React.FC = () => {
                   const coords = { latitude: parseFloat(item.lat), longitude: parseFloat(item.lon) };
                   setUserLocation(coords);
                   setStartQuery(item.display_name.split(',')[0]);
-                  mapRef.current?.recenter();
+                  mapRef.current?.panTo(coords);
                 }}
               />
             </View>

@@ -5,6 +5,7 @@ All notable changes to the **ev-range-radius-app** will be documented in this fi
 ## [1.0.0] - 2026-08-13
 
 ### Fixed
+- **Custom Start Point Reverted to GPS on Selection**: Picking a new "FROM" location in the trip planner called `mapRef.recenter()` to pan the map, but `recenter()` re-fetches the device's live GPS position and overwrites `userLocation` with it — silently snapping the just-picked custom start point back to the actual GPS location a moment later, so the trip was calculated from the old origin instead. Added a GPS-free `panTo(coords)` map method for this case; `recenter()` remains only for the explicit "Current Location" action.
 - **Arrival Battery % Shown on Direct Routes**: `TripItinerary`'s "route safe, no charging needed" summary now shows the estimated arrival battery percentage (`plan.finalArrivalSoC`), matching the "Arrive with ~X% battery remaining" line already shown when charging stops are required. Previously this figure was computed by `TripPlannerService` but only surfaced in the UI when at least one charging stop was needed.
 
 ### Changed
