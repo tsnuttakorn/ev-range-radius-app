@@ -4,6 +4,9 @@ All notable changes to the **ev-range-radius-app** will be documented in this fi
 
 ## [1.0.0] - 2026-08-13
 
+### Changed
+- **In-Place Minimize for Wide/Split Layout**: `RangeControlPanel`'s minimize/expand toggle now behaves differently per layout. Compact (mobile) is unchanged — minimizing slides the whole panel down to peek from the bottom edge. In the wide/split layout, minimizing no longer shifts the panel's position at all; it just hides the sliders/climate-toggle block in place, leaving the car name and range summary (safe range, usable energy, max buffer, time budget) always visible in the right-hand column. The drag handle (a slide affordance) is hidden in wide mode since nothing slides there; tapping the summary card still toggles it.
+
 ### Fixed
 - **Restored Live Location Search, Routing & Station Data**: Reverted the "100% offline" stubs added earlier today (`searchLocations`, `fetchRealRoute`, `fetchIsochronePolygon`, `getAllRealStations`) that unconditionally returned empty/null, which broke destination search (always "No matches found") and forced every trip route and range polygon onto the straight-line/simulated fallback instead of real road/OSM data. Real network calls (Nominatim, OSRM, OpenRouteService, OpenChargeMap/Overpass) are back, each still with its existing timeout + offline fallback if the request fails.
 

@@ -48,28 +48,34 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
   const maxAc = activeVehicle.maxAcChargeKW ?? presetInfo?.maxAcChargeKW ?? 7;
 
   // Starts minimized (compact summary only) so the panel doesn't cover the map by default —
-  // the sliders are one tap/swipe away, not permanently in view.
+  // the sliders are one tap/swipe away, not permanently in view. Wide layout starts expanded
+  // (there's room for it alongside the map), but stays user-minimizable just like the compact
+  // layout — it can still cover a meaningful chunk of the narrower right-hand column.
   const [minimized, setMinimized] = useState(!isWide);
   const translateY = useRef(new Animated.Value(isWide ? 0 : MINIMIZE_TRANSLATE_Y)).current;
 
-  // Sync state if isWide mode changes dynamically
+  // Reset to each layout's default expand state when switching between compact and wide —
+  // e.g. rotating a foldable — rather than carrying over a minimized/expanded state that may
+  // no longer fit the new layout.
   React.useEffect(() => {
-    if (isWide) {
-      setMinimized(false);
-      translateY.setValue(0);
-    } else {
-      setMinimized(true);
-      translateY.setValue(MINIMIZE_TRANSLATE_Y);
-    }
+    setMinimized(!isWide);
+    translateY.setValue(isWide ? 0 : MINIMIZE_TRANSLATE_Y);
   }, [isWide]);
 
   const t = getTheme(themeMode);
 
   // Toggle state helper
   const animateToState = (isMin: boolean) => {
-    if (isWide) return; // Keep it fully open on wide screens
     if (!isMin && onMaximize) {
       onMaximize();
+    }
+
+    if (isWide) {
+      // Wide layout never shifts position (there's no map underneath to reveal by sliding
+      // down) — minimizing just hides the sliders/toggle block in place, leaving the car +
+      // range summary visible at all times.
+      setMinimized(isMin);
+      return;
     }
 
     Animated.spring(translateY, {
@@ -134,7 +140,10 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
         { transform: [{ translateY }], backgroundColor: t.bg, borderColor: t.border },
       ]}
     >
-      {/* Gesture Drag Handle bar */}
+      {/* Gesture Drag Handle bar — swipe-to-minimize only makes sense in the compact layout,
+          where minimizing slides the whole panel down to peek out from the bottom edge. The
+          wide layout doesn't move at all when minimized (see animateToState), so there's
+          nothing to drag there. */}
       {!isWide && (
         <View {...panResponder.panHandlers} style={styles.dragHandleArea}>
           <View style={[styles.dragHandle, { backgroundColor: t.textTertiary }]} />
@@ -158,9 +167,7 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
               {activeVehicle.modelName}
             </Text>
           </View>
-          {!isWide && (
-            <FontAwesome name={minimized ? 'chevron-up' : 'chevron-down'} size={12} color={t.textTertiary} />
-          )}
+          <FontAwesome name={minimized ? 'chevron-up' : 'chevron-down'} size={12} color={t.textTertiary} />
         </View>
 
         <View style={styles.chargeSpeedRow}>
@@ -215,7 +222,12 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
         </View>
       </TouchableOpacity>
 
-      {/* 2. Sliders and Control Section */}
+      {/* 2. Sliders and Control Section — in the compact layout this always renders and gets
+          carried off-screen with the rest of the panel when minimized (see the translateY
+          animation above). In the wide layout the panel itself never moves, so this is the
+          part that actually hides: skip rendering it entirely while minimized, leaving the
+          car + range summary above in place. */}
+      {(!isWide || !minimized) && (
       <View style={styles.controlSection}>
         {/* Current SoC Slider */}
         <View style={styles.sliderContainer}>
@@ -303,6 +315,7 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
           />
         </View>
       </View>
+      )}
     </Animated.View>
   );
 };
