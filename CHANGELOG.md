@@ -5,6 +5,16 @@ All notable changes to the **ev-range-radius-app** will be documented in this fi
 ## [1.0.0] - 2026-08-13
 
 ### Changed
+- **DC Charging Strictly Preferred Over AC**: The trip planner now treats DC as a hard preference at every hop — including for the backup/alternative route — instead of a soft scoring penalty. If any DC charger is reachable, AC options are dropped from consideration entirely; a farther DC charger always wins over a closer AC one. AC is only ever picked when no DC charger is reachable within safe range at all.
+
+### Fixed
+- **Directions Button Text Overflow on Backup Stop**: The "Directions from {suggested stop name}" button label could overflow/wrap awkwardly when the suggested stop's name was long. Shortened to a fixed "Directions from Suggested Stop" label, with `numberOfLines`/ellipsis as a safety net regardless of name length.
+- **Backup Stop Directions Started From GPS Instead of the Suggested Stop**: The "Get Directions in Google Maps" button on a backup/alternative charging stop's detail card omitted an origin, so Google Maps defaulted to the device's current GPS location — not useful for comparing "how far is this backup stop from the stop I'm actually planning to use." It now detects when the card is showing a backup stop and sets the primary/suggested stop as the directions origin instead, with the button label changing to "Directions from {suggested stop name}" to make that explicit.
+
+### Added
+- **Compare Backup Charging Station on Map**: The backup/alternative route card in the trip itinerary now has a "View on map to compare" toggle. Tapping it pans the map to the backup station's location and opens its detail card, so it can be visually compared against the primary pick; tapping it again ("Back to trip") deselects it and pans back to the origin. The backup stop now also gets its own hollow "B" badge marker on the map (previously it blended in as a plain, unlabeled pin), and its route line switches from a muted dashed line to a solid brand-colored one while actively being compared, so both the suggested (primary) stop and the direction to the backup stop are clearly visible side by side.
+
+### Changed
 - **Unified In-Place Minimize Across All Layouts**: `RangeControlPanel`'s minimize/expand now behaves the same in the compact/vertical (mobile) layout as it already did in the wide/split layout — minimizing no longer slides the whole panel down; it just hides the sliders/climate-toggle block in place, leaving the car name + range summary always visible. Removed the now-unused swipe-to-minimize drag handle, `PanResponder`, and slide animation, since the panel itself never moves in either layout anymore.
 
 ### Fixed

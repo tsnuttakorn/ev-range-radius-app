@@ -83,9 +83,12 @@ export class TripPlannerService {
    *
    * Strategy per hop: from the current simulated position, look at every charger reachable
    * within the vehicle's safe range — any station in range is a candidate, regardless of its
-   * reported live status. Score each by how much closer to the destination it gets you
-   * (straight-line-ish road distance), with a soft penalty for slower AC chargers, then pick
-   * the best. The driver's preferred charge limit is a hard cap at every stop; the planner only
+   * reported live status. DC fast chargers are strictly preferred over AC: if any DC charger is
+   * reachable, AC options are dropped from consideration entirely for that hop; AC is only ever
+   * picked when no DC charger is reachable before the battery would hit the reserve buffer.
+   * Within whichever pool is being considered, stations are scored by how much closer to the
+   * destination they get you (straight-line-ish road distance) and the best one is picked. The
+   * driver's preferred charge limit is a hard cap at every stop; the planner only
    * charges past it as a last resort, when capping there would otherwise strand the trip (no
    * further charger and not the destination reachable afterwards) — never merely to finish in
    * fewer total stops. Charge time is estimated at whichever is slower: the station's rated
@@ -185,12 +188,18 @@ export class TripPlannerService {
       // is reachable, while still falling back to the best station overall if not.
       const biasTowardAvailability = !!options.preferAvailableFirstStop && hop === 0;
 
+      // DC is strictly preferred: only consider AC chargers when no DC charger is reachable at
+      // all. This is a hard filter, not a scoring nudge — a further-but-DC station always wins
+      // over a closer-but-AC one, since AC's charge speed disadvantage matters far more than a
+      // few extra km of driving.
+      const reachableDC = reachable.filter((s) => s.type === 'DC');
+      const candidatePool = reachableDC.length > 0 ? reachableDC : reachable;
+
       let best: ChargingStation | null = null;
       let bestScore = Infinity;
-      for (const station of reachable) {
+      for (const station of candidatePool) {
         const distToDest = getDistanceKm(station, destination);
         let score = distToDest;
-        if (station.type !== 'DC') score += 30; // prefer fast chargers to keep the trip quick
         if (biasTowardAvailability && station.status !== 'AVAILABLE') score += 150;
         if (score < bestScore) {
           bestScore = score;

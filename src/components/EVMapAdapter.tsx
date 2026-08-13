@@ -34,6 +34,9 @@ export interface IMapProviderProps {
   onSelectDestination: (coords: MapCoordinates | null) => void;
   /** Fires whenever the smart multi-stop trip plan is (re)calculated for the current destination. */
   onTripPlanChange?: (state: { plan: SmartTripPlan | null; isCalculating: boolean }) => void;
+  /** id of the station currently being compared (see TripItinerary's "View on map to compare")
+   * — while set, the backup route's line and stop marker are drawn emphasized instead of muted. */
+  comparingStationId?: string | null;
 }
 
 export interface IMapRef {
@@ -160,6 +163,7 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
   destination,
   onSelectDestination,
   onTripPlanChange,
+  comparingStationId,
 }, ref) => {
   const mapRef = useRef<MapView>(null);
   const { activeVehicle, currentSoC, targetReserveSoC, preferredMaxChargeSoC, isAirConActive } = useEVStore();
@@ -443,17 +447,68 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
           <StationMarker key={station.id} station={station} isZoomedIn={isZoomedIn} onSelect={onSelectStation} />
         ))}
 
-        {/* Alternative route (if one was found) — drawn muted/thin and underneath the primary route */}
-        {destination && tripPlan?.alternative && tripPlan.alternative.legs.map((leg, index) => (
-          <Polyline
-            key={`alt-leg-${index}`}
-            coordinates={leg.coordinates}
-            strokeColor={t.textTertiary}
-            strokeWidth={3}
-            lineDashPattern={[4, 6]}
-            zIndex={1}
-          />
-        ))}
+        {/* Alternative route (if one was found) — drawn muted/thin and underneath the primary route
+            by default. While its backup station is being compared (see TripItinerary's "View on
+            map to compare"), draw it solid and brand-colored instead so the direction to the
+            backup stop reads clearly against the primary route. */}
+        {destination && tripPlan?.alternative && (() => {
+          const isComparingAlt = !!comparingStationId && tripPlan.alternative!.stops.some((s) => s.station.id === comparingStationId);
+          return tripPlan.alternative!.legs.map((leg, index) => (
+            <Polyline
+              key={`alt-leg-${index}`}
+              coordinates={leg.coordinates}
+              strokeColor={isComparingAlt ? t.brand : t.textTertiary}
+              strokeWidth={isComparingAlt ? 5 : 3}
+              lineDashPattern={isComparingAlt ? undefined : [4, 6]}
+              zIndex={isComparingAlt ? 3 : 1}
+            />
+          ));
+        })()}
+
+        {/* Backup route's charging stop(s) — always shown so the suggested (primary) stop and
+            the backup stop can be visually compared, with a hollow "B" badge to distinguish them
+            from the primary's filled numbered badges; the one currently being compared is
+            enlarged and brand-colored. */}
+        {destination && tripPlan?.alternative && tripPlan.alternative.stops.map((stop, index) => {
+          const isComparing = comparingStationId === stop.station.id;
+          return (
+            <Marker
+              key={`alt-stop-${stop.station.id}`}
+              coordinate={{ latitude: stop.station.latitude, longitude: stop.station.longitude }}
+              anchor={{ x: 0.5, y: 1.4 }}
+              zIndex={isComparing ? 51 : 40}
+            >
+              <View
+                style={[
+                  styles.altStopBadge,
+                  {
+                    borderColor: isComparing ? t.brand : t.textTertiary,
+                    backgroundColor: t.bg,
+                    transform: [{ scale: isComparing ? 1.2 : 1 }],
+                  },
+                ]}
+              >
+                <Text style={[styles.altStopBadgeText, { color: isComparing ? t.brand : t.textTertiary }]}>B</Text>
+              </View>
+              <Callout tooltip>
+                <View style={styles.calloutContainer}>
+                  <Text style={styles.calloutTitle}>Backup stop {index + 1} · {stop.station.name}</Text>
+                  <View style={styles.calloutBadgeRow}>
+                    <View style={[styles.calloutBadge, stop.station.type === 'DC' ? styles.badgeDC : styles.badgeAC]}>
+                      <Text style={styles.calloutBadgeText}>{stop.station.powerKW} kW {stop.station.type}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.calloutDetails}>
+                    Charge {stop.arrivalSoC}% → {stop.departureSoC}% (+{stop.energyAddedKWh} kWh)
+                  </Text>
+                  <Text style={styles.calloutDetails}>
+                    ~{Math.round(stop.chargeTimeMinutes)} min charging stop
+                  </Text>
+                </View>
+              </Callout>
+            </Marker>
+          );
+        })}
 
         {/* Draw Smart Trip Routing Polylines — one segment per drive leg, numbered stops in between */}
         {destination && tripPlan && tripPlan.legs.map((leg, index) => {
@@ -594,22 +649,37 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
             </Text>
           )}
 
-          <TouchableOpacity
-            style={styles.directionsButton}
-            onPress={() => {
-              const url = buildGoogleMapsDirectionsUrl({
-                latitude: renderedStation.latitude,
-                longitude: renderedStation.longitude,
-              });
-              Linking.openURL(url).catch((err) =>
-                Alert.alert('Error', 'Cannot open Google Maps: ' + err.message)
-              );
-            }}
-          >
-            <Text style={styles.directionsButtonText}>
-              <FontAwesome name="location-arrow" size={12} color="#fff" />  Get Directions in Google Maps
-            </Text>
-          </TouchableOpacity>
+          {(() => {
+            // When the card is showing a backup route's charging stop (see "View on map to
+            // compare"), directions should run from the suggested/primary stop it's backing up
+            // — not from the device's current GPS location — since that's the actual comparison
+            // being made: "how do I get from my planned stop to this backup one".
+            const isBackupStop = !!tripPlan?.alternative?.stops.some((s) => s.station.id === renderedStation.id);
+            const primaryStop = tripPlan?.stops[0]?.station;
+            const directionsOrigin = isBackupStop && primaryStop
+              ? { latitude: primaryStop.latitude, longitude: primaryStop.longitude }
+              : undefined;
+
+            return (
+              <TouchableOpacity
+                style={styles.directionsButton}
+                onPress={() => {
+                  const url = buildGoogleMapsDirectionsUrl(
+                    { latitude: renderedStation.latitude, longitude: renderedStation.longitude },
+                    { origin: directionsOrigin }
+                  );
+                  Linking.openURL(url).catch((err) =>
+                    Alert.alert('Error', 'Cannot open Google Maps: ' + err.message)
+                  );
+                }}
+              >
+                <Text style={styles.directionsButtonText} numberOfLines={1} ellipsizeMode="tail">
+                  <FontAwesome name="location-arrow" size={12} color="#fff" />{' '}
+                  {directionsOrigin ? 'Directions from Suggested Stop' : 'Get Directions in Google Maps'}
+                </Text>
+              </TouchableOpacity>
+            );
+          })()}
         </Animated.View>
       )}
 
@@ -877,6 +947,24 @@ const styles = StyleSheet.create({
   stopBadgeText: {
     color: mapColors.textPrimary,
     fontSize: 12,
+    fontWeight: '800',
+  },
+  altStopBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  altStopBadgeText: {
+    fontSize: 11,
     fontWeight: '800',
   },
   destinationMarker: {

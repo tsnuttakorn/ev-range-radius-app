@@ -49,6 +49,19 @@ export const HomeScreen: React.FC = () => {
     setTripPlan(null);
   };
 
+  // Lets the backup-route card in the itinerary jump the map to that station's location so it
+  // can be visually compared against the primary pick. Tapping the same toggle again ("Back to
+  // trip") deselects it and pans back to the origin — the view the trip was already centered on.
+  const handleCompareBackupStation = (station: ChargingStation | null) => {
+    if (station) {
+      setSelectedStation(station);
+      mapRef.current?.panTo({ latitude: station.latitude, longitude: station.longitude });
+    } else {
+      setSelectedStation(null);
+      mapRef.current?.panTo(userLocation);
+    }
+  };
+
   const tripBorderColor = !destination
     ? t.borderSubtle
     : !tripPlan || isPlanningTrip
@@ -126,7 +139,13 @@ export const HomeScreen: React.FC = () => {
           <View style={[styles.dividerLine, { backgroundColor: t.borderSubtle }]} />
 
           <ScrollView style={{ maxHeight: isWide ? height * 0.50 : SCREEN_HEIGHT * 0.45 }} showsVerticalScrollIndicator={true} keyboardShouldPersistTaps="handled">
-            <TripItinerary plan={tripPlan} isCalculating={isPlanningTrip} theme={t} />
+            <TripItinerary
+              plan={tripPlan}
+              isCalculating={isPlanningTrip}
+              theme={t}
+              onCompareBackupStation={handleCompareBackupStation}
+              comparingStationId={selectedStation?.id ?? null}
+            />
           </ScrollView>
         </>
       )}
@@ -188,6 +207,7 @@ export const HomeScreen: React.FC = () => {
         onSelectStation={setSelectedStation}
         destination={destination}
         onSelectDestination={setDestination}
+        comparingStationId={selectedStation?.id ?? null}
         onTripPlanChange={({ plan, isCalculating }) => {
           setTripPlan(plan);
           setIsPlanningTrip(isCalculating);
