@@ -5,6 +5,7 @@ All notable changes to the **ev-range-radius-app** will be documented in this fi
 ## [1.0.0] - 2026-08-13
 
 ### Added
+- **Native Android Project & App Icon Asset Pack**: Added the native `android/` project scaffold (`expo prebuild`) and a generated brand icon set (`assets/icon.png`, adaptive-icon foreground/background, Android 13+ monochrome layer, splash, favicon, plus a reference `assets/app-icons/` export pack), wired up in `app.json`. Added `npm run android` / `npm run ios` scripts for native builds.
 - **Dynamic Charging Speed Display**: Implemented active vehicle AC and DC peak charging limits inside the `RangeControlPanel` header.
 - **Simulated Fallback Indicator**: Added a subtle, permanent `(Simulated)` badge next to the vehicle name pill and a footer note to notify users when range boundaries are rendered in offline simulation mode.
 - **Scrollable Trip Itinerary**: Wrapped the timeline inside a `ScrollView` with a dynamic `maxHeight` restricted to 45% of the total screen height to prevent layout overflows.

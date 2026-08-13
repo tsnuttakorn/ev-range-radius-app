@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "scripts": {
     "build:tsc": "tsc --noEmit",
-    "test": "jest"
+    "test": "jest",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

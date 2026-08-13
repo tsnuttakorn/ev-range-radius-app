@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0B0F16"/>
+      <stop offset="100%" stop-color="#141C28"/>
+    </linearGradient>
+    <radialGradient id="vignette" cx="50%" cy="40%" r="75%">
+      <stop offset="0%" stop-color="#1B2636" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#0B0F16" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="plugFill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4CFFB0"/>
+      <stop offset="100%" stop-color="#1FA0FF"/>
+    </linearGradient>
+    <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#2FE7CB"/>
+      <stop offset="100%" stop-color="#1FA0FF"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#39FFB4" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#39FFB4" stop-opacity="0"/>
+    </radialGradient>
+</defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/><rect width="1024" height="1024" fill="url(#vignette)"/><circle cx="512" cy="512" r="230" fill="url(#glow)"/><circle cx="512" cy="512" r="430" fill="none" stroke="url(#ringGrad)" stroke-width="4" opacity="0.22"/><circle cx="512" cy="512" r="370" fill="none" stroke="url(#ringGrad)" stroke-width="5.5" opacity="0.36"/><circle cx="512" cy="512" r="310" fill="none" stroke="url(#ringGrad)" stroke-width="7" opacity="0.55"/><rect x="374.0" y="314.2" width="276.0" height="395.6" rx="58.9" fill="url(#plugFill)"/><circle cx="512.0" cy="447.6" r="106.7" fill="#0B0F16" opacity="0.32"/><rect x="392.4" y="566.3" width="239.2" height="130.6" rx="65.3" fill="#0B0F16" opacity="0.32"/><circle cx="512.0" cy="447.6" r="27.6" fill="#F3FFFB"/><circle cx="572.7" cy="447.6" r="27.6" fill="#F3FFFB"/><circle cx="542.4" cy="500.2" r="27.6" fill="#F3FFFB"/><circle cx="481.6" cy="500.2" r="27.6" fill="#F3FFFB"/><circle cx="451.3" cy="447.6" r="27.6" fill="#F3FFFB"/><circle cx="481.6" cy="395.0" r="27.6" fill="#F3FFFB"/><circle cx="542.4" cy="395.0" r="27.6" fill="#F3FFFB"/><circle cx="460.5" cy="631.6" r="38.6" fill="#F3FFFB"/><circle cx="563.5" cy="631.6" r="38.6" fill="#F3FFFB"/>
+</svg>
