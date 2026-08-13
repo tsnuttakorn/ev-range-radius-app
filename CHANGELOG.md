@@ -1,0 +1,17 @@
+# Changelog
+
+All notable changes to the **ev-range-radius-app** will be documented in this file.
+
+## [1.0.0] - 2026-08-13
+
+### Added
+- **Dynamic Charging Speed Display**: Implemented active vehicle AC and DC peak charging limits inside the `RangeControlPanel` header.
+- **Simulated Fallback Indicator**: Added a subtle, permanent `(Simulated)` badge next to the vehicle name pill and a footer note to notify users when range boundaries are rendered in offline simulation mode.
+- **Scrollable Trip Itinerary**: Wrapped the timeline inside a `ScrollView` with a dynamic `maxHeight` restricted to 45% of the total screen height to prevent layout overflows.
+- **Garage Preservation Policy**: Prevented default preset vehicle models (Tesla, BYD, NETA, MG, Hyundai) from being modified or deleted in the garage selector modal, securing system-default specifications.
+- **Safety Fallback spec lookup**: Integrated a fallback mechanism that fetches vehicle specifications from presets if local persisted AsyncStorage profiles contain null or outdated values.
+
+### Changed
+- **Improved Fallback Polygon Formula**: Replaced the heavily distorted polygon formulas with a realistic road-network circuity (tortuosity) model scaling to 77%-87% of theoretical straight lines with organic variations.
+- **Optimized Network Timeout Boundaries**: Wrapped all remote network fetches (OpenStreetMap Overpass, OpenChargeMap, OSRM routes, and OpenRouteService isochrones) with a hard 3-to-4-second timeout limit to guarantee instant offline fallback and prevent UI rendering hangs.
+- **Cleaned Up Map Layout**: Removed the large floating warning overlay banners from the map layer for a cleaner, distraction-free user interface.

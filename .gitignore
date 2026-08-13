@@ -1,0 +1,9 @@
+node_modules/
+.expo/
+dist/
+web-build/
+*.log
+
+# Local env — see .env.example for required keys
+.env
+.env.local
