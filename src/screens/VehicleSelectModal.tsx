@@ -284,7 +284,7 @@ export const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ onClose 
                 <Text style={[styles.label, { color: t.textTertiary }]}>Max DC Fast Charge (kW)</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: t.surfaceSunken, color: t.textPrimary, borderColor: t.borderSubtle }]}
-                  placeholder="e.g., 130 (CCS Combo / CCS2)"
+                  placeholder="e.g., 130"
                   placeholderTextColor={t.textTertiary}
                   keyboardType="numeric"
                   value={customMaxDcKW}

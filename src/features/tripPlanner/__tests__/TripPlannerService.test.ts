@@ -545,4 +545,64 @@ describe('TripPlannerService.planSmartTrip alternative routes', () => {
     // distance — regardless of its status — same as general alternative behavior.
     expect(plan.alternative!.stops[0]?.station.id).toBe('second-occupied');
   });
+
+  it('prefers a farther DC charger over a closer AC one for the alternative, same as the primary pick', async () => {
+    const origin: MapCoordinates = { latitude: 0, longitude: 0 };
+    const destination: MapCoordinates = { latitude: 300 / 111, longitude: 0 };
+    // Wins the primary pick — closest DC on the path.
+    const primaryDC = makeStation({ id: 'primary-dc', latitude: 270 / 111, longitude: 0, type: 'DC' });
+    // Closer to the destination than the other remaining DC option, but AC — should lose the
+    // alternative slot to a farther DC charger despite scoring better on distance alone.
+    const closerAC = makeStation({ id: 'closer-ac', latitude: 220 / 111, longitude: 0, type: 'AC' });
+    // Farther than the AC option, but DC — should win the alternative.
+    const fartherDC = makeStation({ id: 'farther-dc', latitude: 180 / 111, longitude: 0, type: 'DC' });
+
+    const plan = await TripPlannerService.planSmartTrip({
+      origin,
+      destination,
+      vehicle,
+      currentSoC: 90,
+      targetReserveSoC: 15,
+      airConActive: false,
+      fetchRoute: makeFetchRoute(),
+      fetchStations: async (center) => {
+        primaryDC.distanceKm = straightDistanceKm(center, primaryDC);
+        closerAC.distanceKm = straightDistanceKm(center, closerAC);
+        fartherDC.distanceKm = straightDistanceKm(center, fartherDC);
+        return [primaryDC, closerAC, fartherDC];
+      },
+    });
+
+    expect(plan.stops[0].station.id).toBe('primary-dc');
+    expect(plan.alternative).toBeDefined();
+    expect(plan.alternative!.stops[0]?.station.id).toBe('farther-dc');
+  });
+
+  it('falls back to AC for the alternative only when no other DC charger is reachable', async () => {
+    const origin: MapCoordinates = { latitude: 0, longitude: 0 };
+    const destination: MapCoordinates = { latitude: 300 / 111, longitude: 0 };
+    const primaryDC = makeStation({ id: 'primary-dc', latitude: 270 / 111, longitude: 0, type: 'DC' });
+    // The only other reachable charger once primary-dc is excluded — AC, but should still be
+    // picked since there's no DC alternative.
+    const onlyAC = makeStation({ id: 'only-ac', latitude: 200 / 111, longitude: 0, type: 'AC' });
+
+    const plan = await TripPlannerService.planSmartTrip({
+      origin,
+      destination,
+      vehicle,
+      currentSoC: 90,
+      targetReserveSoC: 15,
+      airConActive: false,
+      fetchRoute: makeFetchRoute(),
+      fetchStations: async (center) => {
+        primaryDC.distanceKm = straightDistanceKm(center, primaryDC);
+        onlyAC.distanceKm = straightDistanceKm(center, onlyAC);
+        return [primaryDC, onlyAC];
+      },
+    });
+
+    expect(plan.stops[0].station.id).toBe('primary-dc');
+    expect(plan.alternative).toBeDefined();
+    expect(plan.alternative!.stops[0]?.station.id).toBe('only-ac');
+  });
 });

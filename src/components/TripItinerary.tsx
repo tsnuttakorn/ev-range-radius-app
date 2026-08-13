@@ -2,6 +2,7 @@ import React from 'react';
 import { ActivityIndicator, Alert, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { SmartTripPlan } from '../features/tripPlanner/types';
+import { ChargingStation } from '../utils/StationGenerator';
 import { Theme, radius } from '../theme/tokens';
 import { buildGoogleMapsDirectionsUrl } from '../utils/NavigationService';
 import { formatMinutes } from '../utils/formatMinutes';
@@ -10,6 +11,12 @@ interface TripItineraryProps {
   plan: SmartTripPlan | null;
   isCalculating: boolean;
   theme: Theme;
+  /** Called with the backup route's first charging station when tapped to view it on the map
+   * for comparison against the primary pick, and again (with `null`) to go back. */
+  onCompareBackupStation?: (station: ChargingStation | null) => void;
+  /** id of the station currently being compared on the map, if any — drives the "View on map" /
+   * "Back to trip" toggle label on the backup route card. */
+  comparingStationId?: string | null;
 }
 
 /**
@@ -17,7 +24,13 @@ interface TripItineraryProps {
  * every charging stop the smart planner picked, the estimated arrival/departure
  * battery level, how long each charge takes, and the drive segments between them.
  */
-export const TripItinerary: React.FC<TripItineraryProps> = ({ plan, isCalculating, theme: t }) => {
+export const TripItinerary: React.FC<TripItineraryProps> = ({
+  plan,
+  isCalculating,
+  theme: t,
+  onCompareBackupStation,
+  comparingStationId,
+}) => {
   if (isCalculating) {
     return (
       <View style={styles.statusRow}>
@@ -168,6 +181,8 @@ export const TripItinerary: React.FC<TripItineraryProps> = ({ plan, isCalculatin
           theme={t}
           isBackupForAvailability={plan.stops[0]?.station.status !== 'AVAILABLE'}
           primaryStationName={plan.stops[0]?.station.name}
+          onCompareBackupStation={onCompareBackupStation}
+          comparingStationId={comparingStationId}
         />
       )}
 
@@ -190,39 +205,63 @@ const AlternativeRouteCard: React.FC<{
   theme: Theme;
   isBackupForAvailability: boolean;
   primaryStationName?: string;
-}> = ({ plan, theme: t, isBackupForAvailability, primaryStationName }) => (
-  <View
-    style={[
-      styles.altCard,
-      { backgroundColor: t.surfaceSunken, borderColor: isBackupForAvailability ? t.danger : t.borderSubtle },
-    ]}
-  >
-    <View style={styles.altHeaderRow}>
-      <FontAwesome name={isBackupForAvailability ? 'exclamation-circle' : 'random'} size={11} color={isBackupForAvailability ? t.danger : t.textTertiary} />
-      <Text style={[styles.altHeaderText, { color: isBackupForAvailability ? t.danger : t.textTertiary }]}>
-        {isBackupForAvailability ? 'BACKUP ROUTE' : 'ALTERNATIVE ROUTE'}
+  onCompareBackupStation?: (station: ChargingStation | null) => void;
+  comparingStationId?: string | null;
+}> = ({ plan, theme: t, isBackupForAvailability, primaryStationName, onCompareBackupStation, comparingStationId }) => {
+  const backupStation = plan.stops[0]?.station;
+  const isComparing = !!backupStation && comparingStationId === backupStation.id;
+
+  const handleCompareToggle = () => {
+    if (!backupStation || !onCompareBackupStation) return;
+    onCompareBackupStation(isComparing ? null : backupStation);
+  };
+
+  return (
+    <View
+      style={[
+        styles.altCard,
+        { backgroundColor: t.surfaceSunken, borderColor: isBackupForAvailability ? t.danger : t.borderSubtle },
+      ]}
+    >
+      <View style={styles.altHeaderRow}>
+        <FontAwesome name={isBackupForAvailability ? 'exclamation-circle' : 'random'} size={11} color={isBackupForAvailability ? t.danger : t.textTertiary} />
+        <Text style={[styles.altHeaderText, { color: isBackupForAvailability ? t.danger : t.textTertiary }]}>
+          {isBackupForAvailability ? 'BACKUP ROUTE' : 'ALTERNATIVE ROUTE'}
+        </Text>
+      </View>
+      {isBackupForAvailability && (
+        <Text style={[styles.altReasonText, { color: t.textSecondary }]}>
+          In case {primaryStationName || 'the primary stop'} is occupied when you arrive
+        </Text>
+      )}
+      {plan.directRoute ? (
+        <Text style={[styles.altSummaryText, { color: t.textPrimary }]}>
+          Direct · {plan.totalDistanceKm.toFixed(0)} km · ~{formatMinutes(plan.totalDriveTimeMinutes)}
+        </Text>
+      ) : (
+        <Text style={[styles.altSummaryText, { color: t.textPrimary }]}>
+          Via {backupStation?.name} · {plan.stops.length} stop{plan.stops.length > 1 ? 's' : ''} ·{' '}
+          {plan.totalDistanceKm.toFixed(0)} km · ~{formatMinutes(plan.totalTripTimeMinutes)} total
+        </Text>
+      )}
+      <Text style={[styles.altHintText, { color: t.textTertiary }]}>
+        Shown as a dashed line on the map for comparison
       </Text>
+      {backupStation && onCompareBackupStation && (
+        <TouchableOpacity
+          style={[styles.altCompareButton, { borderColor: isComparing ? t.brand : t.borderSubtle }]}
+          onPress={handleCompareToggle}
+          activeOpacity={0.85}
+        >
+          <FontAwesome name={isComparing ? 'undo' : 'map-marker'} size={11} color={t.brand} />
+          <Text style={[styles.altCompareButtonText, { color: t.brand }]}>
+            {isComparing ? 'Back to trip' : 'View on map to compare'}
+          </Text>
+        </TouchableOpacity>
+      )}
     </View>
-    {isBackupForAvailability && (
-      <Text style={[styles.altReasonText, { color: t.textSecondary }]}>
-        In case {primaryStationName || 'the primary stop'} is occupied when you arrive
-      </Text>
-    )}
-    {plan.directRoute ? (
-      <Text style={[styles.altSummaryText, { color: t.textPrimary }]}>
-        Direct · {plan.totalDistanceKm.toFixed(0)} km · ~{formatMinutes(plan.totalDriveTimeMinutes)}
-      </Text>
-    ) : (
-      <Text style={[styles.altSummaryText, { color: t.textPrimary }]}>
-        Via {plan.stops[0]?.station.name} · {plan.stops.length} stop{plan.stops.length > 1 ? 's' : ''} ·{' '}
-        {plan.totalDistanceKm.toFixed(0)} km · ~{formatMinutes(plan.totalTripTimeMinutes)} total
-      </Text>
-    )}
-    <Text style={[styles.altHintText, { color: t.textTertiary }]}>
-      Shown as a dashed line on the map for comparison
-    </Text>
-  </View>
-);
+  );
+};
 
 const NavigateButton: React.FC<{ theme: Theme; onPress: () => void }> = ({ theme: t, onPress }) => (
   <TouchableOpacity style={[styles.navButton, { backgroundColor: t.brand }]} onPress={onPress} activeOpacity={0.9}>
@@ -372,6 +411,21 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '500',
     marginTop: 3,
+  },
+  altCompareButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 8,
+    paddingVertical: 8,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+  },
+  altCompareButtonText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   navButton: {
     flexDirection: 'row',

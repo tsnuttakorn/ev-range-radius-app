@@ -29,6 +29,11 @@ export const HomeScreen: React.FC = () => {
   const [destQuery, setDestQuery] = useState('');
   const [tripPlan, setTripPlan] = useState<SmartTripPlan | null>(null);
   const [isPlanningTrip, setIsPlanningTrip] = useState(false);
+  // On by default — the car pin follows the device's real GPS position continuously from app
+  // start. Automatically turns itself off if the user manually overrides the position (dragging
+  // the pin or picking a custom "FROM" start point), so it doesn't fight that mid-trip; the
+  // "Current" action in the FROM row turns it back on.
+  const [isLiveTracking, setIsLiveTracking] = useState(true);
 
   const mapRef = useRef<IMapRef>(null);
 
@@ -47,6 +52,19 @@ export const HomeScreen: React.FC = () => {
     setDestQuery('');
     setStartQuery('');
     setTripPlan(null);
+  };
+
+  // Lets the backup-route card in the itinerary jump the map to that station's location so it
+  // can be visually compared against the primary pick. Tapping the same toggle again ("Back to
+  // trip") deselects it and pans back to the origin — the view the trip was already centered on.
+  const handleCompareBackupStation = (station: ChargingStation | null) => {
+    if (station) {
+      setSelectedStation(station);
+      mapRef.current?.panTo({ latitude: station.latitude, longitude: station.longitude });
+    } else {
+      setSelectedStation(null);
+      mapRef.current?.panTo(userLocation);
+    }
   };
 
   const tripBorderColor = !destination
@@ -103,9 +121,10 @@ export const HomeScreen: React.FC = () => {
                 onChangeText={setStartQuery}
                 onSelect={(item) => {
                   const coords = { latitude: parseFloat(item.lat), longitude: parseFloat(item.lon) };
+                  setIsLiveTracking(false); // manual start point overrides live GPS tracking
                   setUserLocation(coords);
                   setStartQuery(item.display_name.split(',')[0]);
-                  mapRef.current?.recenter();
+                  mapRef.current?.panTo(coords);
                 }}
               />
             </View>
@@ -113,6 +132,7 @@ export const HomeScreen: React.FC = () => {
               <TouchableOpacity
                 onPress={() => {
                   setStartQuery('');
+                  setIsLiveTracking(true); // resume following GPS after a manual start point
                   mapRef.current?.recenter();
                 }}
                 style={styles.useCurrentButton}
@@ -126,7 +146,13 @@ export const HomeScreen: React.FC = () => {
           <View style={[styles.dividerLine, { backgroundColor: t.borderSubtle }]} />
 
           <ScrollView style={{ maxHeight: isWide ? height * 0.50 : SCREEN_HEIGHT * 0.45 }} showsVerticalScrollIndicator={true} keyboardShouldPersistTaps="handled">
-            <TripItinerary plan={tripPlan} isCalculating={isPlanningTrip} theme={t} />
+            <TripItinerary
+              plan={tripPlan}
+              isCalculating={isPlanningTrip}
+              theme={t}
+              onCompareBackupStation={handleCompareBackupStation}
+              comparingStationId={selectedStation?.id ?? null}
+            />
           </ScrollView>
         </>
       )}
@@ -150,9 +176,14 @@ export const HomeScreen: React.FC = () => {
       </TouchableOpacity>
 
       <View style={{ flexDirection: 'row', gap: 8 }}>
+        {/* Live GPS tracking runs continuously in the background from app start (see
+            isLiveTracking below) — this button isn't a toggle for it, and doesn't re-fetch GPS
+            itself (that's slower and can fail/hang). It just snaps the camera back to wherever
+            the car pin already is — tracking keeps that accurate — and zooms in, for when the
+            map has been panned/zoomed away from it. */}
         <TouchableOpacity
           style={[styles.iconButton, { backgroundColor: t.surface, borderColor: t.borderSubtle }]}
-          onPress={() => mapRef.current?.recenter()}
+          onPress={() => mapRef.current?.panTo(userLocation)}
           activeOpacity={0.85}
         >
           <FontAwesome name="location-arrow" size={14} color={t.reserve} />
@@ -188,6 +219,9 @@ export const HomeScreen: React.FC = () => {
         onSelectStation={setSelectedStation}
         destination={destination}
         onSelectDestination={setDestination}
+        comparingStationId={selectedStation?.id ?? null}
+        isLiveTracking={isLiveTracking}
+        onLiveTrackingInterrupted={() => setIsLiveTracking(false)}
         onTripPlanChange={({ plan, isCalculating }) => {
           setTripPlan(plan);
           setIsPlanningTrip(isCalculating);

@@ -78,8 +78,16 @@ export interface RangeCalculationInput {
 export interface RangeCalculationResult {
   /** Calculated real-world safe range in km (stopping at target reserve SoC) */
   safeRangeKm: number;
-  /** Maximum theoretical range in km until the battery is completely flat (0% SoC) */
+  /** Maximum theoretical range in km until the battery is completely flat (0% SoC) — independent
+   * of the reserve buffer by design, since it represents going all the way past it to empty. Used
+   * for the map's outer boundary polygon. */
   maxRangeKm: number;
+  /** Best-case range in km at a full charge while still respecting the reserve buffer —
+   * (100% - targetReserveSoC) of the vehicle's total range. Unlike `maxRangeKm`, this *does*
+   * scale with the reserve buffer setting; unlike `safeRangeKm`, it's independent of the current
+   * battery level — a "what's the most I could plan for" figure rather than "what can I do right
+   * now." */
+  maxBufferRangeKm: number;
   /** Calculated usable battery energy remaining in kWh (taking reserve into account) */
   usableBatteryKWh: number;
   /** Estimated efficiency rate under inputs in kWh per kilometer (kWh/km) */

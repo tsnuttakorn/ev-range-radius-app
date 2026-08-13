@@ -2,9 +2,34 @@
 
 All notable changes to the **ev-range-radius-app** will be documented in this file.
 
-## [1.0.0] - 2026-08-13
+## [1.0.0] - 2026-08-14
+
+### Added
+- **Automatic Real-Time Location Tracking**: The car pin now follows the device's live GPS position continuously from app start (via `Location.watchPositionAsync`), instead of only updating on an explicit recenter/drag/search action. Automatically pauses itself if the position is manually overridden (dragging the pin, or picking a custom "FROM" start point), so it doesn't fight that override mid-trip; the "Current" chip in the FROM row resumes it. The top-right location button is a plain "snap the camera back to the pin and zoom in" action — it no longer toggles tracking or re-fetches GPS itself (that was slower and could fail/hang); it just pans to the already-tracked position.
+- **Correct Location on First App Open**: The map previously opened centered on a hardcoded fallback coordinate (not the device's actual location) until the user manually tapped the location button. `EVMapAdapter` now silently requests location permission and fetches the real GPS position once on mount, updating the pin and camera automatically; falls back to the default location only if permission is denied or GPS fails.
+- **Car Emoji Pin for Current Location**: Replaced the platform's default red map pin at the current/selected location with a themed circular badge containing a car emoji (🚗) — background color follows the light/dark theme (`t.surface`), with a brand-teal border. Re-snapshots correctly on theme toggle (previously the native marker bitmap wouldn't refresh until something else, like dragging the pin, forced it).
 
 ### Fixed
+- **"Max Buffer Range" Ignored the Reserve Buffer Slider**: The sub-metric previously showed the same value as the map's outer-boundary "Max Range" (0% SoC, i.e. driving to completely flat) — a figure that's deliberately independent of the reserve buffer by design, so adjusting the reserve slider had no visible effect on it at all. Added a new `maxBufferRangeKm` calculation — best-case range at a full charge while still respecting the reserve buffer, i.e. `(100% - reserve%) × total range` — and switched the panel to display that instead. The map's outer polygon still uses the original 0%-SoC `maxRangeKm`, unchanged.
+
+## [1.0.0] - 2026-08-13
+
+### Changed
+- **DC Charging Strictly Preferred Over AC**: The trip planner now treats DC as a hard preference at every hop — including for the backup/alternative route — instead of a soft scoring penalty. If any DC charger is reachable, AC options are dropped from consideration entirely; a farther DC charger always wins over a closer AC one. AC is only ever picked when no DC charger is reachable within safe range at all.
+
+### Fixed
+- **Uneven Max DC/AC Charge Input Row in Garage's Custom Vehicle Form**: The "Max DC Fast Charge (kW)" placeholder (`"e.g., 130 (CCS Combo / CCS2)"`) was much longer than the "Max AC Charge (kW)" placeholder (`"e.g., 6.6"`) despite both inputs sharing an equal-width half row, causing it to overflow/clip and look uneven against its neighbor. Shortened to `"e.g., 130"` to match.
+- **Directions Button Text Overflow on Backup Stop**: The "Directions from {suggested stop name}" button label could overflow/wrap awkwardly when the suggested stop's name was long. Shortened to a fixed "Directions from Suggested Stop" label, with `numberOfLines`/ellipsis as a safety net regardless of name length.
+- **Backup Stop Directions Started From GPS Instead of the Suggested Stop**: The "Get Directions in Google Maps" button on a backup/alternative charging stop's detail card omitted an origin, so Google Maps defaulted to the device's current GPS location — not useful for comparing "how far is this backup stop from the stop I'm actually planning to use." It now detects when the card is showing a backup stop and sets the primary/suggested stop as the directions origin instead, with the button label changing to "Directions from {suggested stop name}" to make that explicit.
+
+### Added
+- **Compare Backup Charging Station on Map**: The backup/alternative route card in the trip itinerary now has a "View on map to compare" toggle. Tapping it pans the map to the backup station's location and opens its detail card, so it can be visually compared against the primary pick; tapping it again ("Back to trip") deselects it and pans back to the origin. The backup stop now also gets its own hollow "B" badge marker on the map (previously it blended in as a plain, unlabeled pin), and its route line switches from a muted dashed line to a solid brand-colored one while actively being compared, so both the suggested (primary) stop and the direction to the backup stop are clearly visible side by side.
+
+### Changed
+- **Unified In-Place Minimize Across All Layouts**: `RangeControlPanel`'s minimize/expand now behaves the same in the compact/vertical (mobile) layout as it already did in the wide/split layout — minimizing no longer slides the whole panel down; it just hides the sliders/climate-toggle block in place, leaving the car name + range summary always visible. Removed the now-unused swipe-to-minimize drag handle, `PanResponder`, and slide animation, since the panel itself never moves in either layout anymore.
+
+### Fixed
+- **Custom Start Point Reverted to GPS on Selection**: Picking a new "FROM" location in the trip planner called `mapRef.recenter()` to pan the map, but `recenter()` re-fetches the device's live GPS position and overwrites `userLocation` with it — silently snapping the just-picked custom start point back to the actual GPS location a moment later, so the trip was calculated from the old origin instead. Added a GPS-free `panTo(coords)` map method for this case; `recenter()` remains only for the explicit "Current Location" action.
 - **Arrival Battery % Shown on Direct Routes**: `TripItinerary`'s "route safe, no charging needed" summary now shows the estimated arrival battery percentage (`plan.finalArrivalSoC`), matching the "Arrive with ~X% battery remaining" line already shown when charging stops are required. Previously this figure was computed by `TripPlannerService` but only surfaced in the UI when at least one charging stop was needed.
 
 ### Changed

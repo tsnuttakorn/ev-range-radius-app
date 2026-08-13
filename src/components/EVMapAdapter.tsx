@@ -34,10 +34,24 @@ export interface IMapProviderProps {
   onSelectDestination: (coords: MapCoordinates | null) => void;
   /** Fires whenever the smart multi-stop trip plan is (re)calculated for the current destination. */
   onTripPlanChange?: (state: { plan: SmartTripPlan | null; isCalculating: boolean }) => void;
+  /** id of the station currently being compared (see TripItinerary's "View on map to compare")
+   * — while set, the backup route's line and stop marker are drawn emphasized instead of muted. */
+  comparingStationId?: string | null;
+  /** When true, continuously follows the device's live GPS position via `watchPositionAsync`
+   * instead of only updating on an explicit recenter/drag/search action. */
+  isLiveTracking?: boolean;
+  /** Fired when the user manually overrides the pin position (dragging it) while live tracking
+   * is active — the parent should turn tracking off so the next GPS update doesn't immediately
+   * fight the manual placement. */
+  onLiveTrackingInterrupted?: () => void;
 }
 
 export interface IMapRef {
   recenter: () => void;
+  /** Pans the camera to the given coordinates without touching GPS/`onCenterChange` — for when the
+   * center has already been set explicitly (e.g. picking a custom start point), where `recenter`
+   * would wrongly re-fetch and snap back to the device's live GPS location. */
+  panTo: (coords: MapCoordinates) => void;
 }
 
 // Wide enough to cover an entire country the size of Thailand (~1,650km at its longest) in one
@@ -146,6 +160,58 @@ const StationMarker = React.memo<StationMarkerProps>(({ station, isZoomedIn, onS
 });
 StationMarker.displayName = 'StationMarker';
 
+interface CurrentLocationMarkerProps {
+  coordinate: MapCoordinates;
+  draggable?: boolean;
+  onDragEnd?: (coords: MapCoordinates) => void;
+  /** Circle fill — themed (white in light mode, dark surface in dark mode) rather than the
+   * fixed dark `mapColors` palette the rest of the map uses, so it reads as part of the app's
+   * chrome rather than a map overlay. */
+  backgroundColor: string;
+  borderColor: string;
+}
+
+/**
+ * The user/EV's current (or manually-picked) location pin — a car emoji in a themed badge
+ * instead of the platform's default red pin, so it reads clearly as "this is your car," not
+ * just another generic map marker.
+ *
+ * Same `tracksViewChanges` mount-then-settle pattern as `StationMarker` (see its comment) —
+ * needed here too since this is also a custom child view, not react-native-maps' built-in pin.
+ */
+const CurrentLocationMarker = React.memo<CurrentLocationMarkerProps>(
+  ({ coordinate, draggable, onDragEnd, backgroundColor, borderColor }) => {
+    const [tracksViewChanges, setTracksViewChanges] = useState(true);
+
+    // Re-arm on every color change (e.g. toggling light/dark theme), not just on mount — otherwise
+    // react-native-maps never re-snapshots the native marker bitmap after the initial render, so
+    // the circle silently keeps its old background/border color until something else forces a
+    // fresh snapshot (e.g. dragging the pin).
+    useEffect(() => {
+      setTracksViewChanges(true);
+      const timeout = setTimeout(() => setTracksViewChanges(false), 300);
+      return () => clearTimeout(timeout);
+    }, [backgroundColor, borderColor]);
+
+    return (
+      <Marker
+        coordinate={coordinate}
+        draggable={draggable}
+        onDragEnd={(e) => onDragEnd?.(e.nativeEvent.coordinate)}
+        title="Your EV Location"
+        description="Drag pin to recalculate range from a new location"
+        anchor={{ x: 0.5, y: 0.5 }}
+        tracksViewChanges={tracksViewChanges}
+      >
+        <View style={[styles.currentLocationMarker, { backgroundColor, borderColor }]}>
+          <Text style={styles.currentLocationEmoji}>🚗</Text>
+        </View>
+      </Marker>
+    );
+  }
+);
+CurrentLocationMarker.displayName = 'CurrentLocationMarker';
+
 export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
   center,
   safeRadiusKm,
@@ -156,6 +222,9 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
   destination,
   onSelectDestination,
   onTripPlanChange,
+  comparingStationId,
+  isLiveTracking,
+  onLiveTrackingInterrupted,
 }, ref) => {
   const mapRef = useRef<MapView>(null);
   const { activeVehicle, currentSoC, targetReserveSoC, preferredMaxChargeSoC, isAirConActive } = useEVStore();
@@ -163,6 +232,14 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
 
   useImperativeHandle(ref, () => ({
     recenter: handleLocateAndRecenter,
+    panTo: (coords: MapCoordinates) => {
+      if (mapRef.current) {
+        mapRef.current.animateToRegion(
+          { ...coords, latitudeDelta: 0.15, longitudeDelta: 0.15 },
+          1000
+        );
+      }
+    },
   }));
 
   // Track the visible map region — drives both the zoomed-in/out marker style and clustering grid size
@@ -172,6 +249,63 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
     latitudeDelta: 0.2,
     longitudeDelta: 0.2,
   });
+
+  // One-time GPS correction on mount: `center` starts out at whatever the store's userLocation
+  // default is (a fixed fallback coordinate, not the device's actual location, and not persisted
+  // across sessions) — without this, the app opens centered there every time until the user
+  // manually taps the location button. Silently does nothing if permission isn't granted or the
+  // fetch fails; the fallback simply stays in place, same as before this existed.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (cancelled || status !== 'granted') return;
+        const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (cancelled) return;
+        const coords = { latitude: location.coords.latitude, longitude: location.coords.longitude };
+        onCenterChange?.(coords);
+        mapRef.current?.animateToRegion({ ...coords, latitudeDelta: 0.15, longitudeDelta: 0.15 }, 800);
+      } catch {
+        // Keep the fallback location if GPS is unavailable/denied.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Live GPS tracking: while enabled, continuously follows the device's real-world position
+  // instead of only updating on an explicit recenter/drag/search action. Started/stopped purely
+  // by the `isLiveTracking` prop so the parent screen owns the on/off state (and can turn it off
+  // itself once the user manually overrides the pin — see onLiveTrackingInterrupted).
+  useEffect(() => {
+    if (!isLiveTracking) return;
+
+    let subscription: Location.LocationSubscription | null = null;
+    let cancelled = false;
+
+    const startWatching = async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (cancelled || status !== 'granted') return;
+
+      subscription = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.Balanced, timeInterval: 4000, distanceInterval: 15 },
+        (location) => {
+          const coords = { latitude: location.coords.latitude, longitude: location.coords.longitude };
+          if (onCenterChange) onCenterChange(coords);
+          mapRef.current?.animateToRegion({ ...coords, latitudeDelta: 0.15, longitudeDelta: 0.15 }, 800);
+        }
+      );
+    };
+    startWatching();
+
+    return () => {
+      cancelled = true;
+      subscription?.remove();
+    };
+  }, [isLiveTracking]);
 
   // Broad, country-wide station list (fetched once, independent of the visible radius) that the
   // trip planner searches locally at every simulated hop — so a sparse result near one waypoint
@@ -390,19 +524,18 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
         onPress={(e) => onSelectDestination(e.nativeEvent.coordinate)}
       >
         {/* User EV Current Location Marker */}
-        <Marker
+        <CurrentLocationMarker
           draggable
           coordinate={{
             latitude: center.latitude,
             longitude: center.longitude,
           }}
-          title="Your EV Location"
-          description="Drag pin to recalculate range from a new location"
-          onDragEnd={(e) => {
-            if (onCenterChange) {
-              onCenterChange(e.nativeEvent.coordinate);
-            }
+          onDragEnd={(coords) => {
+            if (isLiveTracking) onLiveTrackingInterrupted?.();
+            onCenterChange?.(coords);
           }}
+          backgroundColor={t.surface}
+          borderColor={t.brand}
         />
 
         {/* Outer Polygon: Max Range (0% SoC reserve) */}
@@ -431,17 +564,68 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
           <StationMarker key={station.id} station={station} isZoomedIn={isZoomedIn} onSelect={onSelectStation} />
         ))}
 
-        {/* Alternative route (if one was found) — drawn muted/thin and underneath the primary route */}
-        {destination && tripPlan?.alternative && tripPlan.alternative.legs.map((leg, index) => (
-          <Polyline
-            key={`alt-leg-${index}`}
-            coordinates={leg.coordinates}
-            strokeColor={t.textTertiary}
-            strokeWidth={3}
-            lineDashPattern={[4, 6]}
-            zIndex={1}
-          />
-        ))}
+        {/* Alternative route (if one was found) — drawn muted/thin and underneath the primary route
+            by default. While its backup station is being compared (see TripItinerary's "View on
+            map to compare"), draw it solid and brand-colored instead so the direction to the
+            backup stop reads clearly against the primary route. */}
+        {destination && tripPlan?.alternative && (() => {
+          const isComparingAlt = !!comparingStationId && tripPlan.alternative!.stops.some((s) => s.station.id === comparingStationId);
+          return tripPlan.alternative!.legs.map((leg, index) => (
+            <Polyline
+              key={`alt-leg-${index}`}
+              coordinates={leg.coordinates}
+              strokeColor={isComparingAlt ? t.brand : t.textTertiary}
+              strokeWidth={isComparingAlt ? 5 : 3}
+              lineDashPattern={isComparingAlt ? undefined : [4, 6]}
+              zIndex={isComparingAlt ? 3 : 1}
+            />
+          ));
+        })()}
+
+        {/* Backup route's charging stop(s) — always shown so the suggested (primary) stop and
+            the backup stop can be visually compared, with a hollow "B" badge to distinguish them
+            from the primary's filled numbered badges; the one currently being compared is
+            enlarged and brand-colored. */}
+        {destination && tripPlan?.alternative && tripPlan.alternative.stops.map((stop, index) => {
+          const isComparing = comparingStationId === stop.station.id;
+          return (
+            <Marker
+              key={`alt-stop-${stop.station.id}`}
+              coordinate={{ latitude: stop.station.latitude, longitude: stop.station.longitude }}
+              anchor={{ x: 0.5, y: 1.4 }}
+              zIndex={isComparing ? 51 : 40}
+            >
+              <View
+                style={[
+                  styles.altStopBadge,
+                  {
+                    borderColor: isComparing ? t.brand : t.textTertiary,
+                    backgroundColor: t.bg,
+                    transform: [{ scale: isComparing ? 1.2 : 1 }],
+                  },
+                ]}
+              >
+                <Text style={[styles.altStopBadgeText, { color: isComparing ? t.brand : t.textTertiary }]}>B</Text>
+              </View>
+              <Callout tooltip>
+                <View style={styles.calloutContainer}>
+                  <Text style={styles.calloutTitle}>Backup stop {index + 1} · {stop.station.name}</Text>
+                  <View style={styles.calloutBadgeRow}>
+                    <View style={[styles.calloutBadge, stop.station.type === 'DC' ? styles.badgeDC : styles.badgeAC]}>
+                      <Text style={styles.calloutBadgeText}>{stop.station.powerKW} kW {stop.station.type}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.calloutDetails}>
+                    Charge {stop.arrivalSoC}% → {stop.departureSoC}% (+{stop.energyAddedKWh} kWh)
+                  </Text>
+                  <Text style={styles.calloutDetails}>
+                    ~{Math.round(stop.chargeTimeMinutes)} min charging stop
+                  </Text>
+                </View>
+              </Callout>
+            </Marker>
+          );
+        })}
 
         {/* Draw Smart Trip Routing Polylines — one segment per drive leg, numbered stops in between */}
         {destination && tripPlan && tripPlan.legs.map((leg, index) => {
@@ -582,22 +766,37 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
             </Text>
           )}
 
-          <TouchableOpacity
-            style={styles.directionsButton}
-            onPress={() => {
-              const url = buildGoogleMapsDirectionsUrl({
-                latitude: renderedStation.latitude,
-                longitude: renderedStation.longitude,
-              });
-              Linking.openURL(url).catch((err) =>
-                Alert.alert('Error', 'Cannot open Google Maps: ' + err.message)
-              );
-            }}
-          >
-            <Text style={styles.directionsButtonText}>
-              <FontAwesome name="location-arrow" size={12} color="#fff" />  Get Directions in Google Maps
-            </Text>
-          </TouchableOpacity>
+          {(() => {
+            // When the card is showing a backup route's charging stop (see "View on map to
+            // compare"), directions should run from the suggested/primary stop it's backing up
+            // — not from the device's current GPS location — since that's the actual comparison
+            // being made: "how do I get from my planned stop to this backup one".
+            const isBackupStop = !!tripPlan?.alternative?.stops.some((s) => s.station.id === renderedStation.id);
+            const primaryStop = tripPlan?.stops[0]?.station;
+            const directionsOrigin = isBackupStop && primaryStop
+              ? { latitude: primaryStop.latitude, longitude: primaryStop.longitude }
+              : undefined;
+
+            return (
+              <TouchableOpacity
+                style={styles.directionsButton}
+                onPress={() => {
+                  const url = buildGoogleMapsDirectionsUrl(
+                    { latitude: renderedStation.latitude, longitude: renderedStation.longitude },
+                    { origin: directionsOrigin }
+                  );
+                  Linking.openURL(url).catch((err) =>
+                    Alert.alert('Error', 'Cannot open Google Maps: ' + err.message)
+                  );
+                }}
+              >
+                <Text style={styles.directionsButtonText} numberOfLines={1} ellipsizeMode="tail">
+                  <FontAwesome name="location-arrow" size={12} color="#fff" />{' '}
+                  {directionsOrigin ? 'Directions from Suggested Stop' : 'Get Directions in Google Maps'}
+                </Text>
+              </TouchableOpacity>
+            );
+          })()}
         </Animated.View>
       )}
 
@@ -866,6 +1065,40 @@ const styles = StyleSheet.create({
     color: mapColors.textPrimary,
     fontSize: 12,
     fontWeight: '800',
+  },
+  altStopBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  altStopBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  currentLocationMarker: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  currentLocationEmoji: {
+    fontSize: 18,
   },
   destinationMarker: {
     backgroundColor: mapColors.statusOccupied,
