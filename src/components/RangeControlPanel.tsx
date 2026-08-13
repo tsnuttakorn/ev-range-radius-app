@@ -15,9 +15,10 @@ const MINIMIZE_TRANSLATE_Y = 250;
 
 export interface IRangeControlPanelProps {
   onMaximize?: () => void;
+  isWide?: boolean;
 }
 
-export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximize }) => {
+export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximize, isWide = false }) => {
   const {
     activeVehicle,
     currentSoC,
@@ -47,13 +48,25 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
 
   // Starts minimized (compact summary only) so the panel doesn't cover the map by default —
   // the sliders are one tap/swipe away, not permanently in view.
-  const [minimized, setMinimized] = useState(true);
-  const translateY = useRef(new Animated.Value(MINIMIZE_TRANSLATE_Y)).current;
+  const [minimized, setMinimized] = useState(!isWide);
+  const translateY = useRef(new Animated.Value(isWide ? 0 : MINIMIZE_TRANSLATE_Y)).current;
+
+  // Sync state if isWide mode changes dynamically
+  React.useEffect(() => {
+    if (isWide) {
+      setMinimized(false);
+      translateY.setValue(0);
+    } else {
+      setMinimized(true);
+      translateY.setValue(MINIMIZE_TRANSLATE_Y);
+    }
+  }, [isWide]);
 
   const t = getTheme(themeMode);
 
   // Toggle state helper
   const animateToState = (isMin: boolean) => {
+    if (isWide) return; // Keep it fully open on wide screens
     if (!isMin && onMaximize) {
       onMaximize();
     }
@@ -121,9 +134,11 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
       ]}
     >
       {/* Gesture Drag Handle bar */}
-      <View {...panResponder.panHandlers} style={styles.dragHandleArea}>
-        <View style={[styles.dragHandle, { backgroundColor: t.textTertiary }]} />
-      </View>
+      {!isWide && (
+        <View {...panResponder.panHandlers} style={styles.dragHandleArea}>
+          <View style={[styles.dragHandle, { backgroundColor: t.textTertiary }]} />
+        </View>
+      )}
 
       <TouchableOpacity
         activeOpacity={0.9}
@@ -142,7 +157,9 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
               {activeVehicle.modelName}
             </Text>
           </View>
-          <FontAwesome name={minimized ? 'chevron-up' : 'chevron-down'} size={12} color={t.textTertiary} />
+          {!isWide && (
+            <FontAwesome name={minimized ? 'chevron-up' : 'chevron-down'} size={12} color={t.textTertiary} />
+          )}
         </View>
 
         <View style={styles.chargeSpeedRow}>

@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { StyleSheet, View, StatusBar, TouchableOpacity, Text, Modal, ScrollView, Dimensions } from 'react-native';
+import { StyleSheet, View, StatusBar, TouchableOpacity, Text, Modal, ScrollView, Dimensions, useWindowDimensions } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { EVMapAdapter, IMapRef } from '../components/EVMapAdapter';
@@ -77,121 +77,35 @@ export const HomeScreen: React.FC = () => {
         }}
       />
 
-      {/* Floating Header Actions */}
-      <SafeAreaView pointerEvents="box-none" style={styles.headerContainer} edges={['top']}>
-        <View style={styles.actionRow} pointerEvents="box-none">
-          <TouchableOpacity
-            style={[styles.vehicleButton, { backgroundColor: t.surface, borderColor: t.borderSubtle }]}
-            onPress={() => setVehicleModalVisible(true)}
-            activeOpacity={0.85}
-          >
-            <View style={[styles.vehicleIconWrap, { backgroundColor: t.brandDim }]}>
-              <FontAwesome name="car" size={12} color={t.brand} />
-            </View>
-            <Text style={[styles.buttonText, { color: t.textPrimary }]} numberOfLines={1}>
-              {activeVehicle.modelName}
-            </Text>
-            <FontAwesome name="angle-down" size={12} color={t.textTertiary} />
-          </TouchableOpacity>
-
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TouchableOpacity
-              style={[styles.iconButton, { backgroundColor: t.surface, borderColor: t.borderSubtle }]}
-              onPress={() => mapRef.current?.recenter()}
-              activeOpacity={0.85}
-            >
-              <FontAwesome name="location-arrow" size={14} color={t.reserve} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.iconButton, { backgroundColor: t.surface, borderColor: t.borderSubtle }]}
-              onPress={toggleThemeMode}
-              activeOpacity={0.85}
-            >
-              <FontAwesome name={isLight ? 'moon-o' : 'sun-o'} size={14} color={t.reserve} />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Trip planner — always visible, no mode toggle needed. Search a destination, or
-            close the search screen and tap a point on the map instead. */}
-        <View style={[styles.tripCard, { backgroundColor: t.surface, borderColor: tripBorderColor }]}>
-          <View style={styles.destRow}>
-            <View style={{ flex: 1 }}>
-              <LocationSearchField
-                theme={t}
-                size="large"
-                icon="flag-checkered"
-                placeholder="Where do you want to go?"
-                emptyHint="Search a place, or close this and tap a point on the map instead."
-                value={destQuery}
-                onChangeText={setDestQuery}
-                onSelect={(item) => {
-                  const coords = { latitude: parseFloat(item.lat), longitude: parseFloat(item.lon) };
-                  setDestination(coords);
-                  setDestQuery(item.display_name.split(',')[0]);
-                }}
-              />
-            </View>
-            {destination && (
-              <TouchableOpacity
-                onPress={clearTrip}
-                style={[styles.clearIconButton, { backgroundColor: t.dangerDim }]}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <FontAwesome name="close" size={13} color={t.danger} />
-              </TouchableOpacity>
-            )}
+      {isWide ? (
+        /* Wide split overlay layout for Foldables and Tablets (16:9 / 1:1) */
+        <SafeAreaView pointerEvents="box-none" style={styles.wideOverlayContainer}>
+          {/* Left Panel: Search & Trip Card */}
+          <View style={styles.wideLeftColumn} pointerEvents="box-none">
+            {renderHeaderActions()}
+            {renderTripCard()}
           </View>
 
-          {destination && (
-            <>
-              <View style={styles.startRow}>
-                <Text style={[styles.startLabel, { color: t.textTertiary }]}>FROM</Text>
-                <View style={{ flex: 1 }}>
-                  <LocationSearchField
-                    theme={t}
-                    size="compact"
-                    icon="circle"
-                    placeholder="Current Location"
-                    value={startQuery}
-                    onChangeText={setStartQuery}
-                    onSelect={(item) => {
-                      const coords = { latitude: parseFloat(item.lat), longitude: parseFloat(item.lon) };
-                      setUserLocation(coords);
-                      setStartQuery(item.display_name.split(',')[0]);
-                      mapRef.current?.recenter();
-                    }}
-                  />
-                </View>
-                {startQuery.length > 0 && (
-                  <TouchableOpacity
-                    onPress={() => {
-                      setStartQuery('');
-                      mapRef.current?.recenter();
-                    }}
-                    style={styles.useCurrentButton}
-                  >
-                    <FontAwesome name="location-arrow" size={10} color={t.brand} />
-                    <Text style={[styles.useCurrentText, { color: t.brand }]}>Current</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+          {/* Right Panel: Car Info & Range Control Sliders */}
+          <View style={styles.wideRightColumn} pointerEvents="box-none">
+            <RangeControlPanel isWide={true} onMaximize={() => setSelectedStation(null)} />
+          </View>
+        </SafeAreaView>
+      ) : (
+        /* Standard Vertical Layout for Mobile devices */
+        <>
+          {/* Floating Header Actions & Trip Card */}
+          <SafeAreaView pointerEvents="box-none" style={styles.headerContainer} edges={['top']}>
+            {renderHeaderActions()}
+            {renderTripCard()}
+          </SafeAreaView>
 
-              <View style={[styles.dividerLine, { backgroundColor: t.borderSubtle }]} />
-
-              <ScrollView style={{ maxHeight: SCREEN_HEIGHT * 0.70 }} showsVerticalScrollIndicator={true} keyboardShouldPersistTaps="handled">
-                <TripItinerary plan={tripPlan} isCalculating={isPlanningTrip} theme={t} />
-              </ScrollView>
-            </>
-          )}
-        </View>
-      </SafeAreaView>
-
-      {/* Floating Control Panel placed at the bottom */}
-      <SafeAreaView pointerEvents="box-none" style={styles.overlayContainer} edges={['bottom']}>
-        <RangeControlPanel onMaximize={() => setSelectedStation(null)} />
-      </SafeAreaView>
+          {/* Floating Control Panel placed at the bottom */}
+          <SafeAreaView pointerEvents="box-none" style={styles.overlayContainer} edges={['bottom']}>
+            <RangeControlPanel onMaximize={() => setSelectedStation(null)} />
+          </SafeAreaView>
+        </>
+      )}
 
       {/* Vehicle Selection Modal */}
       <Modal
@@ -318,6 +232,25 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
+  },
+  wideOverlayContainer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 16,
+  },
+  wideLeftColumn: {
+    width: 360,
+    height: '100%',
+  },
+  wideRightColumn: {
+    width: 360,
+    height: '100%',
+    justifyContent: 'flex-end',
   },
 });
 export default HomeScreen;
