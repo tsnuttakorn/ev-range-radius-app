@@ -286,6 +286,10 @@ export async function getAllRealStations(
   fallbackStations: ChargingStation[],
   maxResults: number = 40
 ): Promise<ChargingStation[]> {
+  // Commented out to ensure 100% offline operation and zero data leaks (PDPA compliant)
+  return fallbackStations;
+
+  /*
   const [ocmStations, osmStations] = await Promise.all([
     getRealStations(center, maxRadiusKm, [], maxResults),
     getOverpassStations(center, maxRadiusKm),
@@ -293,4 +297,5 @@ export async function getAllRealStations(
 
   const merged = mergeStationSources(ocmStations, osmStations, maxResults);
   return merged.length > 0 ? merged : fallbackStations;
+  */
 }
