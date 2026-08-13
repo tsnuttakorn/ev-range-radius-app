@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { StyleSheet, View, Text, Switch, TouchableOpacity, Animated, PanResponder } from 'react-native';
+import React, { useState } from 'react';
+import { StyleSheet, View, Text, Switch, TouchableOpacity } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import SliderImport from '@react-native-community/slider';
 import { useEVStore } from '../store/useEVStore';
@@ -9,10 +9,6 @@ import { formatMinutes } from '../utils/formatMinutes';
 import { PRESET_VEHICLES } from '../constants/presetVehicles';
 
 const Slider = SliderImport as any;
-
-// Height of the control section to translate out of view — tuned to the (now more compact)
-// sliders + toggle block so minimizing actually clears it from view.
-const MINIMIZE_TRANSLATE_Y = 250;
 
 export interface IRangeControlPanelProps {
   onMaximize?: () => void;
@@ -48,108 +44,39 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
   const maxAc = activeVehicle.maxAcChargeKW ?? presetInfo?.maxAcChargeKW ?? 7;
 
   // Starts minimized (compact summary only) so the panel doesn't cover the map by default —
-  // the sliders are one tap/swipe away, not permanently in view. Wide layout starts expanded
-  // (there's room for it alongside the map), but stays user-minimizable just like the compact
-  // layout — it can still cover a meaningful chunk of the narrower right-hand column.
+  // the sliders are one tap away, not permanently in view. Wide layout starts expanded (there's
+  // room for it alongside the map), but stays user-minimizable just like the compact layout.
+  // Minimizing never moves the panel itself in either layout — no map sits underneath to reveal
+  // by sliding it away — it just hides the sliders/climate-toggle block in place, leaving the
+  // car name + range summary always visible.
   const [minimized, setMinimized] = useState(!isWide);
-  const translateY = useRef(new Animated.Value(isWide ? 0 : MINIMIZE_TRANSLATE_Y)).current;
 
   // Reset to each layout's default expand state when switching between compact and wide —
   // e.g. rotating a foldable — rather than carrying over a minimized/expanded state that may
   // no longer fit the new layout.
   React.useEffect(() => {
     setMinimized(!isWide);
-    translateY.setValue(isWide ? 0 : MINIMIZE_TRANSLATE_Y);
   }, [isWide]);
 
   const t = getTheme(themeMode);
 
-  // Toggle state helper
-  const animateToState = (isMin: boolean) => {
-    if (!isMin && onMaximize) {
+  const toggleMinimized = () => {
+    const next = !minimized;
+    if (!next && onMaximize) {
       onMaximize();
     }
-
-    if (isWide) {
-      // Wide layout never shifts position (there's no map underneath to reveal by sliding
-      // down) — minimizing just hides the sliders/toggle block in place, leaving the car +
-      // range summary visible at all times.
-      setMinimized(isMin);
-      return;
-    }
-
-    Animated.spring(translateY, {
-      toValue: isMin ? MINIMIZE_TRANSLATE_Y : 0,
-      useNativeDriver: true,
-      damping: 18,
-      stiffness: 140,
-    }).start(() => {
-      setMinimized(isMin);
-    });
+    setMinimized(next);
   };
 
-  // Setup PanResponder for swipe gestures on the handle / panel header
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        if (onMaximize) {
-          onMaximize();
-        }
-      },
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Only respond to vertical movement
-        return Math.abs(gestureState.dy) > 5;
-      },
-      onPanResponderMove: (_, gestureState) => {
-        // If panned down, translate the panel (clamped to prevent pulling too far up)
-        const newY = minimized
-          ? MINIMIZE_TRANSLATE_Y + gestureState.dy
-          : gestureState.dy;
-
-        // Clamp translation between 0 (fully open) and MINIMIZE_TRANSLATE_Y + 40 (slightly over-minimize bounce)
-        if (newY >= -20 && newY <= MINIMIZE_TRANSLATE_Y + 40) {
-          translateY.setValue(newY);
-        }
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        // Determine whether to minimize or maximize based on velocity or drag distance
-        if (gestureState.dy > 80 || gestureState.vy > 0.3) {
-          // Swipe down -> minimize
-          animateToState(true);
-        } else if (gestureState.dy < -80 || gestureState.vy < -0.3) {
-          // Swipe up -> maximize
-          animateToState(false);
-        } else {
-          // Snap back to current state
-          animateToState(minimized);
-        }
-      },
-    })
-  ).current;
-
   return (
-    <Animated.View
+    <View
       onTouchStart={() => {
         if (onMaximize) {
           onMaximize();
         }
       }}
-      style={[
-        styles.container,
-        { transform: [{ translateY }], backgroundColor: t.bg, borderColor: t.border },
-      ]}
+      style={[styles.container, { backgroundColor: t.bg, borderColor: t.border }]}
     >
-      {/* Gesture Drag Handle bar — swipe-to-minimize only makes sense in the compact layout,
-          where minimizing slides the whole panel down to peek out from the bottom edge. The
-          wide layout doesn't move at all when minimized (see animateToState), so there's
-          nothing to drag there. */}
-      {!isWide && (
-        <View {...panResponder.panHandlers} style={styles.dragHandleArea}>
-          <View style={[styles.dragHandle, { backgroundColor: t.textTertiary }]} />
-        </View>
-      )}
-
       <TouchableOpacity
         activeOpacity={0.9}
         onPressIn={() => {
@@ -157,7 +84,7 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
             onMaximize();
           }
         }}
-        onPress={() => animateToState(!minimized)}
+        onPress={toggleMinimized}
         style={[styles.summaryCard, { backgroundColor: t.surface, borderColor: t.borderSubtle }]}
       >
         <View style={styles.headerRow}>
@@ -222,12 +149,10 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
         </View>
       </TouchableOpacity>
 
-      {/* 2. Sliders and Control Section — in the compact layout this always renders and gets
-          carried off-screen with the rest of the panel when minimized (see the translateY
-          animation above). In the wide layout the panel itself never moves, so this is the
-          part that actually hides: skip rendering it entirely while minimized, leaving the
-          car + range summary above in place. */}
-      {(!isWide || !minimized) && (
+      {/* 2. Sliders and Control Section — the panel itself never moves in either layout, so
+          minimizing just skips rendering this block entirely, leaving the car + range summary
+          above always visible in place. */}
+      {!minimized && (
       <View style={styles.controlSection}>
         {/* Current SoC Slider */}
         <View style={styles.sliderContainer}>
@@ -316,7 +241,7 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
         </View>
       </View>
       )}
-    </Animated.View>
+    </View>
   );
 };
 
@@ -472,18 +397,6 @@ const styles = StyleSheet.create({
   toggleLabel: {
     fontSize: 13,
     fontWeight: '600',
-  },
-  dragHandleArea: {
-    width: '100%',
-    height: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dragHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 3,
-    opacity: 0.5,
   },
   fallbackBadge: {
     fontSize: 10,
