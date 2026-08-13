@@ -37,6 +37,12 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "5b4e24e8-e107-4c6f-a235-3942cc3e9c24"
+      }
+    },
+    "owner": "nuttakornt"
   }
 }

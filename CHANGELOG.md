@@ -4,6 +4,9 @@ All notable changes to the **ev-range-radius-app** will be documented in this fi
 
 ## [1.0.0] - 2026-08-13
 
+### Fixed
+- **Arrival Battery % Shown on Direct Routes**: `TripItinerary`'s "route safe, no charging needed" summary now shows the estimated arrival battery percentage (`plan.finalArrivalSoC`), matching the "Arrive with ~X% battery remaining" line already shown when charging stops are required. Previously this figure was computed by `TripPlannerService` but only surfaced in the UI when at least one charging stop was needed.
+
 ### Changed
 - **In-Place Minimize for Wide/Split Layout**: `RangeControlPanel`'s minimize/expand toggle now behaves differently per layout. Compact (mobile) is unchanged — minimizing slides the whole panel down to peek from the bottom edge. In the wide/split layout, minimizing no longer shifts the panel's position at all; it just hides the sliders/climate-toggle block in place, leaving the car name and range summary (safe range, usable energy, max buffer, time budget) always visible in the right-hand column. The drag handle (a slide affordance) is hidden in wide mode since nothing slides there; tapping the summary card still toggles it.
 

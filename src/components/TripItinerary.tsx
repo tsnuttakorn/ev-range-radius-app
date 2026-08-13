@@ -74,6 +74,9 @@ export const TripItinerary: React.FC<TripItineraryProps> = ({ plan, isCalculatin
             Route safe · {plan.totalDistanceKm.toFixed(0)} km · ~{formatMinutes(plan.totalDriveTimeMinutes)} direct, no charging needed
           </Text>
         </View>
+        <Text style={[styles.summarySubText, { color: t.textTertiary }]}>
+          Arrive with ~{plan.finalArrivalSoC}% battery remaining
+        </Text>
         <NavigateButton theme={t} onPress={handleStartNavigation} />
       </View>
     );
