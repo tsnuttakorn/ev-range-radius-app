@@ -2,6 +2,16 @@
 
 All notable changes to the **ev-range-radius-app** will be documented in this file.
 
+## [1.0.0] - 2026-08-14
+
+### Added
+- **Automatic Real-Time Location Tracking**: The car pin now follows the device's live GPS position continuously from app start (via `Location.watchPositionAsync`), instead of only updating on an explicit recenter/drag/search action. Automatically pauses itself if the position is manually overridden (dragging the pin, or picking a custom "FROM" start point), so it doesn't fight that override mid-trip; the "Current" chip in the FROM row resumes it. The top-right location button is a plain "snap the camera back to the pin and zoom in" action — it no longer toggles tracking or re-fetches GPS itself (that was slower and could fail/hang); it just pans to the already-tracked position.
+- **Correct Location on First App Open**: The map previously opened centered on a hardcoded fallback coordinate (not the device's actual location) until the user manually tapped the location button. `EVMapAdapter` now silently requests location permission and fetches the real GPS position once on mount, updating the pin and camera automatically; falls back to the default location only if permission is denied or GPS fails.
+- **Car Emoji Pin for Current Location**: Replaced the platform's default red map pin at the current/selected location with a themed circular badge containing a car emoji (🚗) — background color follows the light/dark theme (`t.surface`), with a brand-teal border. Re-snapshots correctly on theme toggle (previously the native marker bitmap wouldn't refresh until something else, like dragging the pin, forced it).
+
+### Fixed
+- **"Max Buffer Range" Ignored the Reserve Buffer Slider**: The sub-metric previously showed the same value as the map's outer-boundary "Max Range" (0% SoC, i.e. driving to completely flat) — a figure that's deliberately independent of the reserve buffer by design, so adjusting the reserve slider had no visible effect on it at all. Added a new `maxBufferRangeKm` calculation — best-case range at a full charge while still respecting the reserve buffer, i.e. `(100% - reserve%) × total range` — and switched the panel to display that instead. The map's outer polygon still uses the original 0%-SoC `maxRangeKm`, unchanged.
+
 ## [1.0.0] - 2026-08-13
 
 ### Changed

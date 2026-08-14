@@ -32,7 +32,7 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
 
   const {
     safeRangeKm,
-    maxRangeKm,
+    maxBufferRangeKm,
     usableBatteryKWh,
     estimatedDriveTimeMinutes,
     estimatedChargeTimeMinutes,
@@ -125,7 +125,7 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
           <View style={styles.subMetricCol}>
             <Text style={[styles.subMetricLabel, { color: t.textTertiary }]}>Max Buffer Range</Text>
             <Text style={[styles.subMetricValue, { color: t.textPrimary }]}>
-              {maxRangeKm} <Text style={[styles.subMetricUnit, { color: t.textTertiary }]}>km</Text>
+              {maxBufferRangeKm} <Text style={[styles.subMetricUnit, { color: t.textTertiary }]}>km</Text>
             </Text>
           </View>
         </View>

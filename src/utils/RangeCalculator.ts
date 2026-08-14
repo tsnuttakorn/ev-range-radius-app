@@ -63,6 +63,7 @@ export class RangeCalculator {
       return {
         safeRangeKm: 0,
         maxRangeKm: 0,
+        maxBufferRangeKm: 0,
         usableBatteryKWh: 0,
         estimatedEfficiencyKWhPerKm: 0,
       };
@@ -71,8 +72,16 @@ export class RangeCalculator {
     // 5. Safe Range (remaining km until target reserve SoC is reached)
     const safeRangeKm = totalRealWorldRangeKm * (netUsableSoC / 100);
 
-    // 6. Max Range (theoretical maximum until completely flat)
+    // 6. Max Range (theoretical maximum until completely flat) — deliberately ignores the reserve
+    // buffer; it represents driving straight past it to 0% SoC, so it's the outer boundary the
+    // map draws, not a "safe" figure.
     const maxRangeKm = totalRealWorldRangeKm * (Math.max(0, currentSoC) / 100);
+
+    // 6b. Max Buffer Range: best-case range at a full charge while still respecting the reserve
+    // buffer. Independent of current SoC (unlike safeRangeKm) — "the most I could plan a trip
+    // for," not "what's reachable right now."
+    const netUsableSoCAtFull = Math.max(0, 100 - targetReserveSoC);
+    const maxBufferRangeKm = totalRealWorldRangeKm * (netUsableSoCAtFull / 100);
 
     // 7. Usable battery energy remaining
     const usableBatteryKWh = (netUsableSoC / 100) * vehicle.batteryCapacityKWh;
@@ -83,6 +92,7 @@ export class RangeCalculator {
     return {
       safeRangeKm: this.round(safeRangeKm),
       maxRangeKm: this.round(maxRangeKm),
+      maxBufferRangeKm: this.round(maxBufferRangeKm),
       usableBatteryKWh: this.round(usableBatteryKWh),
       estimatedEfficiencyKWhPerKm: this.round(estimatedEfficiencyKWhPerKm, 3), // higher precision for efficiency
     };

@@ -37,12 +37,14 @@ describe('RangeCalculator', () => {
 
     // Total Range = 455 * 0.83 * 1.0 = 377.65 km
     // Max Range (80%) = 377.65 * 0.8 = 302.12 -> 302.1
+    // Max Buffer Range (100% - 10% reserve = 90%) = 377.65 * 0.9 = 339.885 -> 339.9
     // Net Usable SoC = 80 - 10 = 70%
     // Safe Range = 377.65 * 0.7 = 264.355 -> 264.4
     // Usable kWh = 60 * 0.7 = 42
     // Efficiency = 60 / 377.65 = 0.1588... -> 0.159
     expect(result.safeRangeKm).toBe(264.4);
     expect(result.maxRangeKm).toBe(302.1);
+    expect(result.maxBufferRangeKm).toBe(339.9);
     expect(result.usableBatteryKWh).toBe(42.0);
     expect(result.estimatedEfficiencyKWhPerKm).toBe(0.159);
   });
@@ -121,5 +123,32 @@ describe('RangeCalculator', () => {
     expect(result.safeRangeKm).toBe(0);
     expect(result.maxRangeKm).toBe(0);
     expect(result.usableBatteryKWh).toBe(0);
+  });
+
+  test('maxBufferRangeKm scales with the reserve buffer, independent of current SoC', () => {
+    // Total Range = 455 * 0.83 * 1.0 = 377.65 km
+    const lowReserve = RangeCalculator.calculate({
+      vehicle: mockTeslaProfile,
+      currentSoC: 30, // deliberately low/irrelevant to maxBufferRangeKm
+      targetReserveSoC: 10,
+      avgSpeedKmH: 90,
+      airConActive: false,
+    });
+    const highReserve = RangeCalculator.calculate({
+      vehicle: mockTeslaProfile,
+      currentSoC: 30, // same SoC as above — only the reserve buffer differs
+      targetReserveSoC: 30,
+      avgSpeedKmH: 90,
+      airConActive: false,
+    });
+
+    // (100% - 10% reserve) * 377.65 = 339.885 -> 339.9
+    expect(lowReserve.maxBufferRangeKm).toBe(339.9);
+    // (100% - 30% reserve) * 377.65 = 264.355 -> 264.4
+    expect(highReserve.maxBufferRangeKm).toBe(264.4);
+    // A larger reserve buffer shrinks maxBufferRangeKm even though currentSoC didn't change —
+    // this is the bug being fixed: previously maxRangeKm (shown as "Max Buffer Range" in the UI)
+    // never responded to the reserve slider at all.
+    expect(highReserve.maxBufferRangeKm).toBeLessThan(lowReserve.maxBufferRangeKm);
   });
 });
