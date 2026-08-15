@@ -15,6 +15,7 @@ import { searchLocations } from '../utils/RouteService';
 import { useEVStore } from '../store/useEVStore';
 import { RecentSearchItem } from '../types/ev';
 import { Theme, radius, spacing } from '../theme/tokens';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export interface LocationSearchFieldProps {
   value: string;
@@ -143,7 +144,7 @@ export const LocationSearchField: React.FC<LocationSearchFieldProps> = ({
       </TouchableOpacity>
 
       <Modal visible={isOpen} animationType="slide" onRequestClose={closeSearch}>
-        <View style={[styles.screen, { backgroundColor: t.bg }]}>
+        <SafeAreaView style={[styles.screen, { backgroundColor: t.bg }]} edges={['top', 'bottom']}>
           <View style={[styles.searchHeader, { borderBottomColor: t.borderSubtle }]}>
             <TouchableOpacity onPress={closeSearch} style={styles.backButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <FontAwesome name="arrow-left" size={16} color={t.textPrimary} />
@@ -238,7 +239,7 @@ export const LocationSearchField: React.FC<LocationSearchFieldProps> = ({
                 </TouchableOpacity>
               ))}
           </ScrollView>
-        </View>
+        </SafeAreaView>
       </Modal>
     </>
   );
@@ -278,7 +279,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'ios' ? 60 : 24,
+    paddingTop: 8,
     paddingBottom: 14,
     borderBottomWidth: 1,
   },

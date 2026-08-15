@@ -239,7 +239,7 @@ export const HomeScreen: React.FC = () => {
 
           {/* Right Panel: Car Info & Range Control Sliders */}
           <View style={styles.wideRightColumn} pointerEvents="box-none">
-            <RangeControlPanel isWide={true} onMaximize={() => setSelectedStation(null)} />
+            <RangeControlPanel isWide={true} isPlanning={!!destination} onMaximize={() => setSelectedStation(null)} />
           </View>
         </SafeAreaView>
       ) : (
@@ -253,7 +253,7 @@ export const HomeScreen: React.FC = () => {
 
           {/* Floating Control Panel placed at the bottom */}
           <SafeAreaView pointerEvents="box-none" style={styles.overlayContainer} edges={['bottom']}>
-            <RangeControlPanel onMaximize={() => setSelectedStation(null)} />
+            <RangeControlPanel isPlanning={!!destination} onMaximize={() => setSelectedStation(null)} />
           </SafeAreaView>
         </>
       )}

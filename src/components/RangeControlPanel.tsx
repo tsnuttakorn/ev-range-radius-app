@@ -13,9 +13,10 @@ const Slider = SliderImport as any;
 export interface IRangeControlPanelProps {
   onMaximize?: () => void;
   isWide?: boolean;
+  isPlanning?: boolean;
 }
 
-export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximize, isWide = false }) => {
+export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximize, isWide = false, isPlanning = false }) => {
   const {
     activeVehicle,
     currentSoC,
@@ -46,17 +47,18 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
   // Starts minimized (compact summary only) so the panel doesn't cover the map by default —
   // the sliders are one tap away, not permanently in view. Wide layout starts expanded (there's
   // room for it alongside the map), but stays user-minimizable just like the compact layout.
-  // Minimizing never moves the panel itself in either layout — no map sits underneath to reveal
-  // by sliding it away — it just hides the sliders/climate-toggle block in place, leaving the
-  // car name + range summary always visible.
-  const [minimized, setMinimized] = useState(!isWide);
+  // We automatically minimize it when planning a trip to keep the UI clear.
+  const [minimized, setMinimized] = useState(!isWide || isPlanning);
 
   // Reset to each layout's default expand state when switching between compact and wide —
-  // e.g. rotating a foldable — rather than carrying over a minimized/expanded state that may
-  // no longer fit the new layout.
+  // e.g. rotating a foldable — or when trip planning status changes.
   React.useEffect(() => {
-    setMinimized(!isWide);
-  }, [isWide]);
+    if (isPlanning) {
+      setMinimized(true);
+    } else {
+      setMinimized(!isWide);
+    }
+  }, [isWide, isPlanning]);
 
   const t = getTheme(themeMode);
 
@@ -70,11 +72,6 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
 
   return (
     <View
-      onTouchStart={() => {
-        if (onMaximize) {
-          onMaximize();
-        }
-      }}
       style={[styles.container, { backgroundColor: t.bg, borderColor: t.border }]}
     >
       <TouchableOpacity
@@ -97,12 +94,14 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
           <FontAwesome name={minimized ? 'chevron-up' : 'chevron-down'} size={12} color={t.textTertiary} />
         </View>
 
-        <View style={styles.chargeSpeedRow}>
-          <FontAwesome name="bolt" size={11} color={t.reserve} />
-          <Text style={[styles.chargeSpeedText, { color: t.textSecondary }]}>
-            Charging: Up to {maxDc} kW DC · {maxAc} kW AC
-          </Text>
-        </View>
+        {!minimized && (
+          <View style={styles.chargeSpeedRow}>
+            <FontAwesome name="bolt" size={11} color={t.reserve} />
+            <Text style={[styles.chargeSpeedText, { color: t.textSecondary }]}>
+              Charging: Up to {maxDc} kW DC · {maxAc} kW AC
+            </Text>
+          </View>
+        )}
 
         <View style={styles.mainMetricContainer}>
           <Text style={[styles.metricLabel, { color: t.brand }]}>SAFE RANGE</Text>
@@ -112,41 +111,45 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
           </View>
         </View>
 
-        <View style={[styles.divider, { backgroundColor: t.borderSubtle }]} />
+        {!minimized && (
+          <>
+            <View style={[styles.divider, { backgroundColor: t.borderSubtle }]} />
 
-        <View style={styles.subMetricsContainer}>
-          <View style={styles.subMetricCol}>
-            <Text style={[styles.subMetricLabel, { color: t.textTertiary }]}>Usable Energy</Text>
-            <Text style={[styles.subMetricValue, { color: t.textPrimary }]}>
-              {usableBatteryKWh} <Text style={[styles.subMetricUnit, { color: t.textTertiary }]}>kWh</Text>
-            </Text>
-          </View>
-          <View style={[styles.subMetricDivider, { backgroundColor: t.borderSubtle }]} />
-          <View style={styles.subMetricCol}>
-            <Text style={[styles.subMetricLabel, { color: t.textTertiary }]}>Max Buffer Range</Text>
-            <Text style={[styles.subMetricValue, { color: t.textPrimary }]}>
-              {maxBufferRangeKm} <Text style={[styles.subMetricUnit, { color: t.textTertiary }]}>km</Text>
-            </Text>
-          </View>
-        </View>
+            <View style={styles.subMetricsContainer}>
+              <View style={styles.subMetricCol}>
+                <Text style={[styles.subMetricLabel, { color: t.textTertiary }]}>Usable Energy</Text>
+                <Text style={[styles.subMetricValue, { color: t.textPrimary }]}>
+                  {usableBatteryKWh} <Text style={[styles.subMetricUnit, { color: t.textTertiary }]}>kWh</Text>
+                </Text>
+              </View>
+              <View style={[styles.subMetricDivider, { backgroundColor: t.borderSubtle }]} />
+              <View style={styles.subMetricCol}>
+                <Text style={[styles.subMetricLabel, { color: t.textTertiary }]}>Max Buffer Range</Text>
+                <Text style={[styles.subMetricValue, { color: t.textPrimary }]}>
+                  {maxBufferRangeKm} <Text style={[styles.subMetricUnit, { color: t.textTertiary }]}>km</Text>
+                </Text>
+              </View>
+            </View>
 
-        {/* Rough time budget: driving the safe range + recharging back up afterward — one
-            compact line rather than a second full metric row. */}
-        <View style={styles.timeBudgetRow}>
-          <FontAwesome name="clock-o" size={11} color={t.textTertiary} />
-          <Text style={[styles.timeBudgetText, { color: t.textSecondary }]}>
-            ~{formatMinutes(estimatedTotalTravelTimeMinutes)} total ·{' '}
-            {formatMinutes(estimatedDriveTimeMinutes)} drive + {formatMinutes(estimatedChargeTimeMinutes)} charge to{' '}
-            {preferredMaxChargeSoC}%
-          </Text>
-        </View>
+            {/* Rough time budget: driving the safe range + recharging back up afterward — one
+                compact line rather than a second full metric row. */}
+            <View style={styles.timeBudgetRow}>
+              <FontAwesome name="clock-o" size={11} color={t.textTertiary} />
+              <Text style={[styles.timeBudgetText, { color: t.textSecondary }]}>
+                ~{formatMinutes(estimatedTotalTravelTimeMinutes)} total ·{' '}
+                {formatMinutes(estimatedDriveTimeMinutes)} drive + {formatMinutes(estimatedChargeTimeMinutes)} charge to{' '}
+                {preferredMaxChargeSoC}%
+              </Text>
+            </View>
 
-        <View style={styles.footerInfoRow}>
-          <FontAwesome name="info-circle" size={10} color={t.textTertiary} />
-          <Text style={[styles.footerInfoText, { color: t.textTertiary }]}>
-            Range boundaries are simulated offline
-          </Text>
-        </View>
+            <View style={styles.footerInfoRow}>
+              <FontAwesome name="info-circle" size={10} color={t.textTertiary} />
+              <Text style={[styles.footerInfoText, { color: t.textTertiary }]}>
+                Range boundaries are simulated offline
+              </Text>
+            </View>
+          </>
+        )}
       </TouchableOpacity>
 
       {/* 2. Sliders and Control Section — the panel itself never moves in either layout, so

@@ -179,4 +179,7 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    // Android for Cars App Library
+    implementation("androidx.car.app:app:1.4.0-rc01")
 }

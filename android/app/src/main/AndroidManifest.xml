@@ -2,6 +2,7 @@
   <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
   <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
   <uses-permission android:name="android.permission.INTERNET"/>
+  <uses-permission android:name="androidx.car.app.ACCESS_TEMPLATES"/>
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
   <uses-permission android:name="android.permission.VIBRATE"/>
@@ -17,6 +18,26 @@
     <meta-data android:name="expo.modules.updates.ENABLED" android:value="false"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
+    
+    <!-- Google Maps API Key -->
+    <meta-data android:name="com.google.android.geo.API_KEY" android:value="AIzaSyDRDxMwE1nizYhRlMbFb1GjFu4CZixw9ME" />
+    
+    <!-- Android Auto service declaration -->
+    <service
+        android:name=".EVCarAppService"
+        android:exported="true"
+        android:label="@string/app_name">
+        <intent-filter>
+            <action android:name="androidx.car.app.CarAppService" />
+            <category android:name="androidx.car.app.category.NAVIGATION"/>
+        </intent-filter>
+    </service>
+
+    <!-- Meta-data referencing car app capabilities -->
+    <meta-data
+        android:name="com.google.android.car.APP_DECLARATION"
+        android:resource="@xml/automotive_app_desc" />
+
     <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true" android:screenOrientation="portrait">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>

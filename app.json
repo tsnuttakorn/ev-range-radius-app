@@ -24,11 +24,14 @@
     "android": {
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION"
       ],
       "package": "com.anonymous.evrangeradiusapp",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyDRDxMwE1nizYhRlMbFb1GjFu4CZixw9ME"
+        }
+      },
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundImage": "./assets/adaptive-icon-background.png",

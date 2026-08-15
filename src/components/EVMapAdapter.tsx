@@ -287,17 +287,21 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
     let cancelled = false;
 
     const startWatching = async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (cancelled || status !== 'granted') return;
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (cancelled || status !== 'granted') return;
 
-      subscription = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.Balanced, timeInterval: 4000, distanceInterval: 15 },
-        (location) => {
-          const coords = { latitude: location.coords.latitude, longitude: location.coords.longitude };
-          if (onCenterChange) onCenterChange(coords);
-          mapRef.current?.animateToRegion({ ...coords, latitudeDelta: 0.15, longitudeDelta: 0.15 }, 800);
-        }
-      );
+        subscription = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, timeInterval: 4000, distanceInterval: 15 },
+          (location) => {
+            const coords = { latitude: location.coords.latitude, longitude: location.coords.longitude };
+            if (onCenterChange) onCenterChange(coords);
+            mapRef.current?.animateToRegion({ ...coords, latitudeDelta: 0.15, longitudeDelta: 0.15 }, 800);
+          }
+        );
+      } catch (error) {
+        console.warn('[EVMapAdapter] Failed to start live GPS tracking:', error);
+      }
     };
     startWatching();
 
