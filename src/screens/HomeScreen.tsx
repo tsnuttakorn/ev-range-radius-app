@@ -100,7 +100,7 @@ export const HomeScreen: React.FC = () => {
     : t.reserve;
 
   const renderTripCard = () => (
-    <View style={[styles.tripCard, { backgroundColor: t.surface, borderColor: tripBorderColor }]}>
+    <View style={[styles.tripCard, { backgroundColor: t.surface, borderColor: tripBorderColor }, isTripItineraryMinimized && { paddingBottom: 8 }]}>
       <View style={styles.destRow}>
         <View style={{ flex: 1 }}>
           <LocationSearchField
@@ -169,7 +169,7 @@ export const HomeScreen: React.FC = () => {
             <TouchableOpacity
               activeOpacity={0.8}
               onPress={() => setIsTripItineraryMinimized(!isTripItineraryMinimized)}
-              style={styles.itineraryHeader}
+              style={[styles.itineraryHeader, isTripItineraryMinimized && { paddingBottom: 2 }]}
             >
               <View style={styles.itineraryHeaderLeft}>
                 <FontAwesome name="map-signs" size={12} color={t.brand} style={{ marginRight: 6 }} />
