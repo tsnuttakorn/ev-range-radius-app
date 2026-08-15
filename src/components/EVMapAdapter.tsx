@@ -7,7 +7,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { MapCoordinates } from '../types/ev';
 import { RangeCalculator } from '../utils/RangeCalculator';
 import { generateMockStations, ChargingStation, getDistanceKm, withinRadiusOf } from '../utils/StationGenerator';
-import { getAllRealStations, getGooglePlacesStations, mergeStationSources } from '../utils/StationService';
+import { getAllRealStations, getGooglePlacesStations, getCorridorStations, mergeStationSources } from '../utils/StationService';
 import { useEVStore } from '../store/useEVStore';
 import { fetchRealRoute, fetchIsochronePolygon } from '../utils/RouteService';
 import { getTheme, mapColors, radius, spacing } from '../theme/tokens';
@@ -433,7 +433,36 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
         lastDestination.current = destKey;
       }
       const newGoogleStations: ChargingStation[] = [];
-      const sessionStations = [...countryStationsRef.current];
+      let sessionStations = [...countryStationsRef.current];
+
+      // Fetch the actual driving route up front (with one retry, same as the fallback the
+      // planner itself would otherwise apply) so it can be corridor-sampled for stations *before*
+      // planning starts, and reused below instead of being fetched a second time.
+      const routeResult =
+        (await fetchRealRoute(center, destination)) ?? (await fetchRealRoute(center, destination));
+      const plannedRoute = routeResult ?? {
+        coordinates: [center, destination],
+        distanceKm: getDistanceKm(center, destination),
+      };
+
+      // Fan station queries out along the whole route corridor — not just around the vehicle's
+      // current position — so a long trip has real coverage near the destination too, not only
+      // near the start (see `getCorridorStations`).
+      if (!cancelled) {
+        try {
+          const corridorStations = await getCorridorStations(plannedRoute.coordinates);
+          if (corridorStations.length > 0) {
+            sessionStations = mergeStationSources(
+              sessionStations,
+              corridorStations,
+              sessionStations.length + corridorStations.length
+            );
+            setCountryStations((prev) => mergeStationSources(prev, corridorStations, COUNTRY_MAX_RESULTS + corridorStations.length));
+          }
+        } catch (error) {
+          console.warn('[EVMapAdapter] Corridor station fetch failed:', error);
+        }
+      }
 
       const plan = await TripPlannerService.planSmartTrip({
         origin: center,
@@ -444,7 +473,7 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
         preferredMaxChargeSoC,
         airConActive: isAirConActive,
         drivingMode,
-        fetchRoute: fetchRealRoute,
+        fetchRoute: async () => plannedRoute,
         fetchStations: async (searchCenter, radiusKm) => {
           // Check if we already queried Google Places near this center within 30km
           const alreadyQueried = queriedRegions.current.some(

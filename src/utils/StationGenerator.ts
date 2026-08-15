@@ -55,6 +55,39 @@ export function withinRadiusOf(
 }
 
 /**
+ * Picks waypoints spaced roughly `intervalKm` apart along a route polyline (always including the
+ * start and end), capped at `maxSamples` points. Used to fan station-source queries out along the
+ * whole corridor of a long trip instead of a single fetch centered on the origin — a fetch that
+ * only ever has a fixed radius/result budget and structurally can't cover the far end of a
+ * multi-hundred-km trip once that budget is spent near the start.
+ */
+export function samplePointsAlongRoute(
+  coordinates: MapCoordinates[],
+  intervalKm: number,
+  maxSamples: number
+): MapCoordinates[] {
+  if (coordinates.length === 0 || maxSamples <= 0) return [];
+
+  const points: MapCoordinates[] = [coordinates[0]];
+  let accumulated = 0;
+
+  for (let i = 0; i < coordinates.length - 1 && points.length < maxSamples; i++) {
+    accumulated += getDistanceKm(coordinates[i], coordinates[i + 1]);
+    if (accumulated >= intervalKm) {
+      points.push(coordinates[i + 1]);
+      accumulated = 0;
+    }
+  }
+
+  const last = coordinates[coordinates.length - 1];
+  if (points.length < maxSamples && getDistanceKm(points[points.length - 1], last) > 1) {
+    points.push(last);
+  }
+
+  return points;
+}
+
+/**
  * Deterministically generates mock EV charging stations around a given coordinate.
  * Uses math coordinate offsets so the same pin location always yields the same nearby stations.
  */

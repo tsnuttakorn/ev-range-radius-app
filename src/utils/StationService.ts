@@ -1,7 +1,7 @@
 import { MapCoordinates } from '../types/ev';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ChargingStation, getDistanceKm } from './StationGenerator';
+import { ChargingStation, getDistanceKm, generateMockStations, samplePointsAlongRoute } from './StationGenerator';
 
 // Register for a free key at https://openchargemap.org
 // If empty, the service will fall back to using generateMockStations automatically so the app still works.
@@ -481,6 +481,75 @@ export function mergeStationSources(
   }
 
   return merged.sort((a, b) => a.distanceKm - b.distanceKm).slice(0, maxResults);
+}
+
+// Corridor sampling: instead of one big-radius fetch centered on wherever the vehicle currently
+// sits (which, on a country-wide search, still truncates to the closest `maxResults` stations to
+// that single center — see `mergeStationSources` below — and starves anything near the far end of
+// a long trip), fan queries out to points spaced along the *actual route* the trip planner will
+// drive. Each waypoint gets its own small radius + result budget, so density near the origin can
+// no longer crowd out coverage near the destination.
+const CORRIDOR_SAMPLE_INTERVAL_KM = 150; // one waypoint roughly every 150km of route
+const CORRIDOR_SAMPLE_RADIUS_KM = 100; // generous enough to catch stations just off the route
+const CORRIDOR_SAMPLE_MAX_RESULTS = 60; // per-waypoint budget, independent of every other waypoint
+const CORRIDOR_MAX_SAMPLES = 12; // safety cap: at 150km spacing this covers ~1,800km of route
+
+/**
+ * Fetches charging stations along an entire route corridor by sampling waypoints spaced roughly
+ * `CORRIDOR_SAMPLE_INTERVAL_KM` apart (always including the origin and destination) and querying
+ * Open Charge Map + OSM/Overpass around each one independently, then merging/deduping the results.
+ *
+ * Deliberately skips Google Places here — it's a paid, rate-limited source already queried
+ * per-hop by the trip planner itself (see `EVMapAdapter`'s `fetchStations`), and firing it once
+ * per corridor waypoint on every trip plan would multiply that cost for comparatively little gain
+ * over the two free sources.
+ *
+ * If a waypoint comes back with no real data at all (typically: fully offline, or no API keys
+ * configured — the common first-launch state), it's seeded with deterministic mock stations
+ * local to that waypoint rather than left as a dead zone, so a long trip on a fresh install still
+ * has *something* to plan a route through instead of failing outright partway along.
+ */
+export async function getCorridorStations(
+  routeCoordinates: MapCoordinates[],
+  maxSamples: number = CORRIDOR_MAX_SAMPLES
+): Promise<ChargingStation[]> {
+  const samplePoints = samplePointsAlongRoute(routeCoordinates, CORRIDOR_SAMPLE_INTERVAL_KM, maxSamples);
+  if (samplePoints.length === 0) return [];
+
+  const offline = await loadOfflineStations();
+
+  const perPointResults = await Promise.all(
+    samplePoints.map(async (point) => {
+      const localOffline = offline
+        .filter((s) => getDistanceKm(point, s) <= CORRIDOR_SAMPLE_RADIUS_KM)
+        .map((s) => ({ ...s, distanceKm: getDistanceKm(point, s) }));
+
+      const [ocmStations, osmStations] = await Promise.all([
+        getRealStations(point, CORRIDOR_SAMPLE_RADIUS_KM, [], CORRIDOR_SAMPLE_MAX_RESULTS),
+        getOverpassStations(point, CORRIDOR_SAMPLE_RADIUS_KM),
+      ]);
+
+      let merged = mergeStationSources(localOffline, ocmStations, CORRIDOR_SAMPLE_MAX_RESULTS);
+      merged = mergeStationSources(merged, osmStations, CORRIDOR_SAMPLE_MAX_RESULTS);
+
+      if (merged.length === 0) {
+        merged = generateMockStations(point, CORRIDOR_SAMPLE_RADIUS_KM);
+      }
+
+      return merged;
+    })
+  );
+
+  let combined: ChargingStation[] = [];
+  for (const stations of perPointResults) {
+    combined = mergeStationSources(combined, stations, combined.length + stations.length);
+  }
+
+  if (combined.length > 0) {
+    await saveOfflineStations(combined);
+  }
+
+  return combined;
 }
 
 /**

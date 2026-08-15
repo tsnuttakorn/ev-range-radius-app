@@ -1,5 +1,12 @@
-import { mergeStationSources } from '../StationService';
+// Pre-existing quirk of this repo's jest setup: ts-jest has no transform for react-native's own
+// Flow-syntax entry point, so importing the real 'react-native' package (StationService imports
+// `Alert` from it) fails to parse when this suite runs in isolation. Stubbing it out here keeps
+// this suite self-contained instead of depending on which other suites happen to run alongside it.
+jest.mock('react-native', () => ({ Alert: { alert: jest.fn() } }));
+
+import { mergeStationSources, getCorridorStations } from '../StationService';
 import { ChargingStation, getDistanceKm } from '../StationGenerator';
+import { MapCoordinates } from '../../types/ev';
 
 const BANGKOK = { latitude: 13.7563, longitude: 100.5018 };
 
@@ -132,5 +139,49 @@ describe('mergeStationSources', () => {
       // timing noise while still catching a real quadratic regression.
       expect(large / small).toBeLessThan(30);
     });
+  });
+});
+
+describe('getCorridorStations', () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    // No API keys configured (OCM key is read from env at module load, already unset in tests)
+    // and every network call fails — simulates a fresh, fully offline first launch: the exact
+    // scenario where a long trip previously had no stations past the first waypoint.
+    globalThis.fetch = jest.fn().mockRejectedValue(new Error('network unavailable in test'));
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
+
+  /** Straight-line ~1000km route so distinct corridor waypoints are unambiguous. */
+  function buildLongRoute(totalKm: number): MapCoordinates[] {
+    const points: MapCoordinates[] = [];
+    for (let i = 0; i <= totalKm; i += 10) {
+      points.push({ latitude: 13.75 + i / 111, longitude: 100.5 });
+    }
+    return points;
+  }
+
+  it('seeds mock stations spread across the whole corridor, not just near the origin, when every real source is unavailable', async () => {
+    const route = buildLongRoute(1000);
+    const stations = await getCorridorStations(route);
+
+    expect(stations.length).toBeGreaterThan(0);
+
+    const origin = route[0];
+    const farStations = stations.filter((s) => getDistanceKm(origin, s) > 500);
+
+    // Before corridor sampling, mock fallback stations were only ever generated around a single
+    // origin-centered point within the vehicle's own range — nothing would exist 500km+ away.
+    expect(farStations.length).toBeGreaterThan(0);
+  });
+
+  it('returns no stations for an empty route', async () => {
+    const stations = await getCorridorStations([]);
+    expect(stations).toEqual([]);
   });
 });
