@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { StyleSheet, View, StatusBar, TouchableOpacity, Text, Modal, ScrollView, Dimensions, useWindowDimensions, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, StatusBar, TouchableOpacity, Text, Modal, ScrollView, useWindowDimensions, ActivityIndicator } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { EVMapAdapter, IMapRef } from '../components/EVMapAdapter';
@@ -16,7 +16,6 @@ import { getTheme, radius } from '../theme/tokens';
 import { useResolvedThemeMode } from '../theme/useResolvedThemeMode';
 
 const TypedStatusBar = StatusBar as any;
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export const HomeScreen: React.FC = () => {
   const { userLocation, setUserLocation, activeVehicle, getCalculationResult, themeMode: themePreference, toggleThemeMode } = useEVStore(
@@ -185,7 +184,7 @@ export const HomeScreen: React.FC = () => {
           {destination && !isTripItineraryMinimized && (
             <>
               <View style={[styles.dividerLine, { backgroundColor: t.borderSubtle }]} />
-              <ScrollView style={{ maxHeight: isWide ? height * 0.50 : SCREEN_HEIGHT * 0.45 }} showsVerticalScrollIndicator={true} keyboardShouldPersistTaps="handled">
+              <ScrollView style={{ maxHeight: isWide ? height * 0.50 : height * 0.45 }} showsVerticalScrollIndicator={true} keyboardShouldPersistTaps="handled">
                 <TripItinerary
                   plan={tripPlan}
                   isCalculating={isPlanningTrip}
