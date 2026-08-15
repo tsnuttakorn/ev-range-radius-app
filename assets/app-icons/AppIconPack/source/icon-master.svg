@@ -1,25 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0B0F16"/>
-      <stop offset="100%" stop-color="#141C28"/>
-    </linearGradient>
-    <radialGradient id="vignette" cx="50%" cy="40%" r="75%">
-      <stop offset="0%" stop-color="#1B2636" stop-opacity="0.55"/>
-      <stop offset="100%" stop-color="#0B0F16" stop-opacity="0"/>
+    <radialGradient id="bg" cx="50%" cy="50%" r="42%">
+      <stop offset="0%" stop-color="#111B2E"/>
+      <stop offset="100%" stop-color="#070B14"/>
     </radialGradient>
-    <linearGradient id="plugFill" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#4CFFB0"/>
-      <stop offset="100%" stop-color="#1FA0FF"/>
+    <linearGradient id="pinFill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2DD4BF"/>
+      <stop offset="100%" stop-color="#38BDF8"/>
     </linearGradient>
     <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#2FE7CB"/>
-      <stop offset="100%" stop-color="#1FA0FF"/>
+      <stop offset="0%" stop-color="#2DD4BF"/>
+      <stop offset="100%" stop-color="#38BDF8"/>
     </linearGradient>
-    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#39FFB4" stop-opacity="0.4"/>
-      <stop offset="100%" stop-color="#39FFB4" stop-opacity="0"/>
-    </radialGradient>
-</defs>
-  <rect width="1024" height="1024" fill="url(#bg)"/><rect width="1024" height="1024" fill="url(#vignette)"/><circle cx="512" cy="512" r="230" fill="url(#glow)"/><circle cx="512" cy="512" r="430" fill="none" stroke="url(#ringGrad)" stroke-width="4" opacity="0.22"/><circle cx="512" cy="512" r="370" fill="none" stroke="url(#ringGrad)" stroke-width="5.5" opacity="0.36"/><circle cx="512" cy="512" r="310" fill="none" stroke="url(#ringGrad)" stroke-width="7" opacity="0.55"/><rect x="374.0" y="314.2" width="276.0" height="395.6" rx="58.9" fill="url(#plugFill)"/><circle cx="512.0" cy="447.6" r="106.7" fill="#0B0F16" opacity="0.32"/><rect x="392.4" y="566.3" width="239.2" height="130.6" rx="65.3" fill="#0B0F16" opacity="0.32"/><circle cx="512.0" cy="447.6" r="27.6" fill="#F3FFFB"/><circle cx="572.7" cy="447.6" r="27.6" fill="#F3FFFB"/><circle cx="542.4" cy="500.2" r="27.6" fill="#F3FFFB"/><circle cx="481.6" cy="500.2" r="27.6" fill="#F3FFFB"/><circle cx="451.3" cy="447.6" r="27.6" fill="#F3FFFB"/><circle cx="481.6" cy="395.0" r="27.6" fill="#F3FFFB"/><circle cx="542.4" cy="395.0" r="27.6" fill="#F3FFFB"/><circle cx="460.5" cy="631.6" r="38.6" fill="#F3FFFB"/><circle cx="563.5" cy="631.6" r="38.6" fill="#F3FFFB"/>
+    <mask id="boltPunch">
+      <rect x="0" y="0" width="1024" height="1024" fill="#fff"/>
+      <polygon points="536.6,279.6 450.6,488.9 503.8,488.9 483.3,640.4 581.6,416.7 522.2,416.7" fill="#000"/>
+    </mask>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <circle cx="512" cy="512" r="320" fill="none" stroke="#2DD4BF" stroke-width="3.5" opacity="0.75"/>
+  <circle cx="512" cy="512" r="430" fill="none" stroke="url(#ringGrad)" stroke-width="3.5" opacity="0.49"/>
+  <circle cx="512" cy="512" r="540" fill="none" stroke="#38BDF8" stroke-width="3.5" opacity="0.24"/>
+  <g mask="url(#boltPunch)">
+    <circle cx="512" cy="460" r="195" fill="url(#pinFill)"/>
+    <polygon points="317,460 707,460 512,850" fill="url(#pinFill)"/>
+    <circle cx="512" cy="460" r="195" fill="none" stroke="#ffffff" stroke-opacity="0.27" stroke-width="6"/>
+  </g>
 </svg>

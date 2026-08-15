@@ -1,17 +1,24 @@
 # EV Range & Isochrone Planner — App Icon Pack
 
-Design: dark glassmorphism background, neon green→blue gradient, CCS Type 2 EV charging
-connector (7 AC pins + 2 DC pins) at the centre, wrapped in 3 concentric range/radius rings.
+Design: dark navy background with a soft center glow, teal→sky gradient (`#2DD4BF` →
+`#38BDF8`), a location pin with a lightning bolt cut clean through it at the centre — reads
+as "find a charger near you" — wrapped in 3 concentric range/radius rings.
 
 ## Quick start (Expo — this is almost certainly what you want)
 
-Copy the 6 files from `expo-assets/` into your project's `assets/` folder, then point
+Copy the 7 files from `expo-assets/` into your project's `assets/` folder, then point
 `app.json` (or `app.config.ts`) at them:
 
 ```jsonc
 {
   "expo": {
     "icon": "./assets/icon.png",
+    "ios": {
+      "icon": {
+        "light": "./assets/icon-light.png",
+        "dark": "./assets/icon.png"
+      }
+    },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -67,9 +74,13 @@ existing ones. This includes:
 `android/playstore-icon-512.png` is the 512×512 icon Google Play's listing page asks for.
 
 ## Notes on the design
-- The **connector glyph** stays inside Android's adaptive-icon safe zone, so it survives
+- The **pin+bolt glyph** stays inside Android's adaptive-icon safe zone, so it survives
   every launcher mask shape (circle, squircle, rounded square, teardrop). The outer rings
   are decorative and may get cropped slightly on circular masks — that's expected and fine.
 - `icon.png` / `source/icon-master-1024.png` is a full-bleed **opaque square** with no
   pre-rounded corners — iOS and Android apply their own corner masking, so never round the
   corners yourself before submitting.
+- The bolt is a genuine cutout (a mask/hole), not a white shape drawn on top — on the
+  transparent-background variants (`adaptive-icon.png`, `android-icon-monochrome.png`,
+  `splash-icon.png`) it shows whatever sits behind the layer through the hole, matching the
+  raster source in `source/icon-master.svg`.
