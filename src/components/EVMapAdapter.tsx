@@ -877,6 +877,11 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
               </Text>
             </View>
             <Text style={[styles.detailPower, { color: textColor }]}>{renderedStation.powerKW} kW</Text>
+            {renderedStation.isTeslaOnly && (
+              <View style={[styles.detailBadge, styles.badgeTeslaOnly]}>
+                <Text style={styles.detailBadgeText}>Tesla Only</Text>
+              </View>
+            )}
             {renderedStation.slots && (
               <Text style={[styles.detailDistance, { color: subTextColor }]}>
                 <FontAwesome name="cube" size={10} color={subTextColor} /> {renderedStation.slots} {renderedStation.slots > 1 ? 'slots' : 'slot'}
@@ -1079,6 +1084,9 @@ const styles = StyleSheet.create({
   },
   badgeAC: {
     backgroundColor: mapColors.chargerAC,
+  },
+  badgeTeslaOnly: {
+    backgroundColor: mapColors.routeNeedsCharge, // amber — "restricted", same caution meaning it carries elsewhere in the app
   },
   badgeAvailable: {
     backgroundColor: mapColors.statusAvailable,

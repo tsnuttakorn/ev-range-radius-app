@@ -1,6 +1,6 @@
 import { MapCoordinates, UserEVProfile, DrivingMode } from '../../types/ev';
 import { RangeCalculator } from '../../utils/RangeCalculator';
-import { ChargingStation, getDistanceKm } from '../../utils/StationGenerator';
+import { ChargingStation, getDistanceKm, isTeslaVehicle } from '../../utils/StationGenerator';
 import { ChargeStop, SmartTripPlan, TripLeg } from './types';
 
 const MAX_STOPS = 15; // Safety cap so an unreachable trip can't loop forever
@@ -193,6 +193,12 @@ export class TripPlannerService {
     const socForDistance = (distanceKm: number) =>
       effectiveRangeKm > 0 ? (distanceKm / effectiveRangeKm) * 100 : Infinity;
 
+    // A non-Tesla EV physically cannot plug into a Tesla-only Supercharger — exclude those
+    // candidates entirely for anyone else, rather than letting the planner route someone to a
+    // stop they can't actually use (see `ChargingStation.isTeslaOnly` / `inferIsTeslaOnly`).
+    const vehicleIsTesla = isTeslaVehicle(vehicle.modelName);
+    const isPluggableByVehicle = (s: ChargingStation) => !s.isTeslaOnly || vehicleIsTesla;
+
     console.log(`[TripPlanner Debug] ===== Starting trip planning pass =====`);
     console.log(`[TripPlanner Debug] Origin: ${JSON.stringify(origin)}`);
     console.log(`[TripPlanner Debug] Destination: ${JSON.stringify(destination)}`);
@@ -263,10 +269,11 @@ export class TripPlannerService {
         const distToStation = routeLegDistance + stationDetourDistance;
         const isReachable = distToStation <= safeRangeNow;
         const isVisited = visitedStationIds.has(s.id);
-        
-        console.log(`  - [Candidate] ${s.name} (${s.id}) at ${distToStation.toFixed(1)} km (route: ${routeLegDistance.toFixed(1)} km, detour: ${stationDetourDistance.toFixed(1)} km), Reachable: ${isReachable}, Visited: ${isVisited}`);
-        
-        return isReachable && !isVisited;
+        const isPluggable = isPluggableByVehicle(s);
+
+        console.log(`  - [Candidate] ${s.name} (${s.id}) at ${distToStation.toFixed(1)} km (route: ${routeLegDistance.toFixed(1)} km, detour: ${stationDetourDistance.toFixed(1)} km), Reachable: ${isReachable}, Visited: ${isVisited}, Pluggable: ${isPluggable}`);
+
+        return isReachable && !isVisited && isPluggable;
       });
 
       console.log(`[TripPlanner Debug] Reachable & unvisited candidates count: ${reachable.length}`);
@@ -357,7 +364,7 @@ export class TripPlannerService {
         const furtherCandidates = await fetchStations(targetLookaheadCenter, 50);
         
         const anotherStationReachableAtPreferredLimit = furtherCandidates.some(
-          (s) => s.id !== best!.id && !visitedStationIds.has(s.id) && (this.getDistanceAlongCoords(mainCoords, bestIdxOnRoute, this.findClosestCoordinateIndex(mainCoords, s)) + getDistanceKm(mainCoords[this.findClosestCoordinateIndex(mainCoords, s)], s)) <= safeRangeAtPreferredLimit
+          (s) => s.id !== best!.id && !visitedStationIds.has(s.id) && isPluggableByVehicle(s) && (this.getDistanceAlongCoords(mainCoords, bestIdxOnRoute, this.findClosestCoordinateIndex(mainCoords, s)) + getDistanceKm(mainCoords[this.findClosestCoordinateIndex(mainCoords, s)], s)) <= safeRangeAtPreferredLimit
         );
 
         if (!anotherStationReachableAtPreferredLimit) {

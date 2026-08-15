@@ -124,6 +124,119 @@ describe('TripPlannerService.planSmartTrip', () => {
     expect(plan.stops).toHaveLength(0);
   });
 
+  it('does not route a non-Tesla vehicle to a Tesla-only Supercharger, even when reachable', async () => {
+    const origin: MapCoordinates = { latitude: 0, longitude: 0 };
+    const destination: MapCoordinates = { latitude: 400 / 111, longitude: 0 }; // ~400km north
+    const teslaOnlyStation = makeStation({
+      id: 'tesla-only',
+      name: 'Tesla Supercharger',
+      latitude: 200 / 111,
+      longitude: 0,
+      type: 'DC',
+      powerKW: 250,
+      status: 'AVAILABLE',
+      isTeslaOnly: true,
+    });
+
+    const plan = await TripPlannerService.planSmartTrip({
+      origin,
+      destination,
+      vehicle, // modelName: 'Test EV' — not a Tesla
+      currentSoC: 90,
+      targetReserveSoC: 15,
+      airConActive: false,
+      fetchRoute: makeFetchRoute(),
+      fetchStations: async (center) => {
+        teslaOnlyStation.distanceKm = straightDistanceKm(center, teslaOnlyStation);
+        return [teslaOnlyStation];
+      },
+    });
+
+    // The only station along the route is Tesla-only and this isn't a Tesla, so the trip must
+    // fail rather than silently suggest a stop the driver can't actually plug into.
+    expect(plan.reachable).toBe(false);
+    expect(plan.stops).toHaveLength(0);
+  });
+
+  it('does route a Tesla vehicle to a Tesla-only Supercharger', async () => {
+    const origin: MapCoordinates = { latitude: 0, longitude: 0 };
+    const destination: MapCoordinates = { latitude: 400 / 111, longitude: 0 };
+    const teslaOnlyStation = makeStation({
+      id: 'tesla-only',
+      name: 'Tesla Supercharger',
+      latitude: 200 / 111,
+      longitude: 0,
+      type: 'DC',
+      powerKW: 250,
+      status: 'AVAILABLE',
+      isTeslaOnly: true,
+    });
+    const teslaVehicle: UserEVProfile = { ...vehicle, modelName: 'Tesla Model Y (RWD)' };
+
+    const plan = await TripPlannerService.planSmartTrip({
+      origin,
+      destination,
+      vehicle: teslaVehicle,
+      currentSoC: 90,
+      targetReserveSoC: 15,
+      airConActive: false,
+      fetchRoute: makeFetchRoute(),
+      fetchStations: async (center) => {
+        teslaOnlyStation.distanceKm = straightDistanceKm(center, teslaOnlyStation);
+        return [teslaOnlyStation];
+      },
+    });
+
+    // Only asserting which station the first stop is (not overall `reachable`) — matches the
+    // pattern the other station-selection tests in this file use, since a synthetic 2-point
+    // straight-line route stub doesn't carry enough resolution for the multi-hop distance math
+    // beyond the first stop.
+    expect(plan.stops[0]?.station.id).toBe('tesla-only');
+  });
+
+  it('skips a Tesla-only station in favor of a reachable open one for a non-Tesla vehicle', async () => {
+    const origin: MapCoordinates = { latitude: 0, longitude: 0 };
+    const destination: MapCoordinates = { latitude: 400 / 111, longitude: 0 };
+    const teslaOnlyStation = makeStation({
+      id: 'tesla-only',
+      name: 'Tesla Supercharger',
+      latitude: 200 / 111,
+      longitude: 0,
+      type: 'DC',
+      powerKW: 250,
+      status: 'AVAILABLE',
+      isTeslaOnly: true,
+    });
+    const openStation = makeStation({
+      id: 'open-ccs',
+      name: 'PEA Volta Supercharger', // "Supercharger" in the name but not Tesla-restricted
+      latitude: 190 / 111, // slightly nearer than the Tesla-only station, still well clear of the
+      longitude: 0, // route's exact midpoint (see `findClosestCoordinateIndex` — this synthetic
+      // 2-point route stub only has an origin/destination vertex to snap to, so a station sitting
+      // exactly on the midpoint can flip to whichever vertex due to floating-point rounding).
+      type: 'DC',
+      powerKW: 150,
+      status: 'AVAILABLE',
+    });
+
+    const plan = await TripPlannerService.planSmartTrip({
+      origin,
+      destination,
+      vehicle,
+      currentSoC: 90,
+      targetReserveSoC: 15,
+      airConActive: false,
+      fetchRoute: makeFetchRoute(),
+      fetchStations: async (center) => {
+        teslaOnlyStation.distanceKm = straightDistanceKm(center, teslaOnlyStation);
+        openStation.distanceKm = straightDistanceKm(center, openStation);
+        return [teslaOnlyStation, openStation];
+      },
+    });
+
+    expect(plan.stops[0]?.station.id).toBe('open-ccs');
+  });
+
   it('inserts a charging stop and computes a sensible charge window for a long trip', async () => {
     // Synthetic straight-north path: effective range at 90% SoC / 15% reserve is ~284km,
     // so a 400km trip needs exactly one stop if the charger sits partway along the route.

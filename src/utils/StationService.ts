@@ -1,7 +1,7 @@
 import { MapCoordinates } from '../types/ev';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ChargingStation, getDistanceKm, generateMockStations, samplePointsAlongRoute } from './StationGenerator';
+import { ChargingStation, getDistanceKm, generateMockStations, samplePointsAlongRoute, inferIsTeslaOnly } from './StationGenerator';
 
 // Register for a free key at https://openchargemap.org
 // If empty, the service will fall back to using generateMockStations automatically so the app still works.
@@ -172,6 +172,16 @@ export async function getRealStations(
         0
       ) || 1;
 
+      // Tesla-only detection: OCM lists each physical connector separately under `Connections`,
+      // with proprietary Tesla plugs carrying a `ConnectionType.Title` that literally says
+      // "Tesla" (e.g. "Tesla (Model S/X)", "Tesla Supercharger"). Folding all of them plus the
+      // name/operator into one blob lets `inferIsTeslaOnly` see both "does this mention Tesla"
+      // and "is a non-Tesla connector *also* listed here" in one pass.
+      const connectionTypeText = (poi.Connections || [])
+        .map((conn: any) => conn.ConnectionType?.Title || '')
+        .join(' ');
+      const isTeslaOnly = inferIsTeslaOnly(`${name} ${operator || ''} ${connectionTypeText}`);
+
       return {
         id: `real-station-${poi.ID || index}`,
         name,
@@ -185,6 +195,7 @@ export async function getRealStations(
         operator,
         phone,
         slots,
+        isTeslaOnly,
       };
     }).filter((station) => station.distanceKm <= maxRadiusKm);
   } catch (error) {
@@ -271,6 +282,13 @@ export async function getOverpassStations(
         const address =
           [tags['addr:housenumber'], tags['addr:street'], tags['addr:city']].filter(Boolean).join(' ') || undefined;
 
+        // Tesla-only detection: OSM's tagging convention puts the connector type in the tag
+        // *key* (e.g. `socket:tesla_supercharger=yes`, `socket:ccs=2`), not just free-text
+        // fields, so `tagText` (already built from tag keys above) plus the tag values, name,
+        // and operator/brand together give `inferIsTeslaOnly` both signals it needs.
+        const tagValueText = Object.values(tags).join(' ');
+        const isTeslaOnly = inferIsTeslaOnly(`${name} ${tags.operator || ''} ${tags.brand || ''} ${tagText} ${tagValueText}`);
+
         return {
           id: `osm-station-${el.id ?? index}`,
           name,
@@ -281,6 +299,7 @@ export async function getOverpassStations(
           status: 'AVAILABLE' as const, // OSM doesn't carry reliable live occupancy data
           distanceKm: getDistanceKm(center, { latitude: lat, longitude: lng }),
           address,
+          isTeslaOnly,
           operator: tags.operator || undefined,
           phone: tags.phone || tags['contact:phone'] || undefined,
           slots: 1,
@@ -399,10 +418,11 @@ export async function getGooglePlacesStations(
       const lat = place.geometry?.location?.lat;
       const lng = place.geometry?.location?.lng;
       const distanceKm = getDistanceKm(center, { latitude: lat, longitude: lng });
+      const name = place.name || 'EV Charging Station (Google)';
 
       return {
         id: `google-${place.place_id}`,
-        name: place.name || 'EV Charging Station (Google)',
+        name,
         latitude: lat,
         longitude: lng,
         type: 'DC', // Explicitly DC as requested
@@ -410,6 +430,10 @@ export async function getGooglePlacesStations(
         status: 'AVAILABLE' as const,
         distanceKm,
         operator: place.vicinity || 'Google Places',
+        // Nearby Search returns no per-connector data at all, so this is name-only best-effort
+        // (e.g. catches "Tesla Supercharger - CentralWorld") — weaker than the OCM/OSM signal,
+        // which can also see when a non-Tesla connector is listed alongside the Tesla one.
+        isTeslaOnly: inferIsTeslaOnly(name),
       };
     });
 

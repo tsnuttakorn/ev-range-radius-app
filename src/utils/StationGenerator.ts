@@ -13,6 +13,42 @@ export interface ChargingStation {
   operator?: string;
   phone?: string;
   slots?: number;
+  /** True when every connector this station reports is Tesla's proprietary plug (NACS/Tesla
+   * Supercharger) with no CCS/CHAdeMO/Type 2 alternative present at the same location — i.e. a
+   * non-Tesla vehicle physically cannot plug in here. `undefined` (not `false`) when the source
+   * doesn't expose per-connector data at all (e.g. Google Places' Nearby Search) — that's "unknown
+   * compatibility", not "confirmed open to everyone", so callers should treat it like `false` for
+   * filtering but shouldn't display it as a confident "works for any EV" claim. */
+  isTeslaOnly?: boolean;
+}
+
+/**
+ * Best-effort Tesla-only detection from free-text station info (name, operator, and — where
+ * available — per-connector type titles/tags). A station only counts as Tesla-only when the text
+ * mentions Tesla by name *and* mentions no other charging standard — a Supercharger site with a
+ * CCS connector alongside the Tesla plug (increasingly common) is compatible via that connector,
+ * so it isn't flagged. Deliberately conservative: when in doubt (no explicit "Tesla" mention), a
+ * station is treated as open to everyone, since misclassifying a normal station as Tesla-only
+ * would wrongly strand non-Tesla drivers, which is worse than occasionally still suggesting an
+ * actually-Tesla-only one the source text didn't call out.
+ *
+ * Deliberately does NOT match on "Supercharger" alone — several non-Tesla networks (including
+ * ones in this app's own mock data, e.g. "PEA Volta Supercharger") use the word generically as a
+ * marketing term for any DC fast charger, not as a Tesla-specific signal.
+ */
+export function inferIsTeslaOnly(text: string): boolean {
+  const t = text.toLowerCase();
+  const mentionsTesla = /\btesla\b|\bnacs\b/.test(t);
+  const mentionsOpenConnector = /ccs|chademo|type\s*2|type2|combo|j1772|gb\/?t/.test(t);
+  return mentionsTesla && !mentionsOpenConnector;
+}
+
+/** Whether a vehicle (by its display name) is a Tesla — `UserEVProfile` has no structured brand
+ * field (custom vehicles are free-text), so this is inferred the same way preset vehicle names
+ * are built: `"${brand} ${model} (${variant})"`, meaning "Tesla" already appears at the front of
+ * `modelName` for every preset Tesla, and for a custom vehicle whenever the driver named it that. */
+export function isTeslaVehicle(modelName: string): boolean {
+  return /tesla/i.test(modelName);
 }
 
 /**
@@ -98,7 +134,7 @@ export function generateMockStations(center: MapCoordinates, maxRadiusKm: number
   const stationTemplates = [
     { name: 'PEA Volta Supercharger', type: 'DC' as const, powerKW: 120, status: 'AVAILABLE' as const, angle: 30, distFrac: 0.25 },
     { name: 'EA Anywhere Charging Station', type: 'AC' as const, powerKW: 22, status: 'OCCUPIED' as const, angle: 120, distFrac: 0.4 },
-    { name: 'Tesla Supercharger V4', type: 'DC' as const, powerKW: 250, status: 'AVAILABLE' as const, angle: 210, distFrac: 0.15 },
+    { name: 'Tesla Supercharger V4', type: 'DC' as const, powerKW: 250, status: 'AVAILABLE' as const, angle: 210, distFrac: 0.15, isTeslaOnly: true },
     { name: 'MG Super Charge', type: 'DC' as const, powerKW: 120, status: 'MAINTENANCE' as const, angle: 285, distFrac: 0.6 },
     { name: 'PTT EV Station PluZ', type: 'AC' as const, powerKW: 22, status: 'AVAILABLE' as const, angle: 75, distFrac: 0.75 },
     { name: 'Shell Recharge Hub', type: 'DC' as const, powerKW: 180, status: 'AVAILABLE' as const, angle: 160, distFrac: 0.5 },
@@ -141,6 +177,7 @@ export function generateMockStations(center: MapCoordinates, maxRadiusKm: number
       powerKW: template.powerKW,
       status: template.status,
       distanceKm: getDistanceKm(center, { latitude, longitude }),
+      isTeslaOnly: 'isTeslaOnly' in template ? template.isTeslaOnly : undefined,
     });
   });
 
