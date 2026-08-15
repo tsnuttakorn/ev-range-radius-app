@@ -45,6 +45,8 @@ export interface IMapProviderProps {
    * is active — the parent should turn tracking off so the next GPS update doesn't immediately
    * fight the manual placement. */
   onLiveTrackingInterrupted?: () => void;
+  /** Fires when station loading state changes (true = fetching, false = idle) */
+  onLoadingStationsChange?: (loading: boolean) => void;
 }
 
 export interface IMapRef {
@@ -226,6 +228,7 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
   comparingStationId,
   isLiveTracking,
   onLiveTrackingInterrupted,
+  onLoadingStationsChange,
 }, ref) => {
   const mapRef = useRef<MapView>(null);
   // `useShallow` keeps this subscribed to only these 6 fields — a bare `useEVStore()` would
@@ -340,6 +343,10 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
   // doesn't wrongly strand a route that has plenty of chargers further along, just outside it.
   const [countryStations, setCountryStations] = useState<ChargingStation[]>([]);
   const [countryStationsLoaded, setCountryStationsLoaded] = useState(false);
+
+  useEffect(() => {
+    onLoadingStationsChange?.(!countryStationsLoaded);
+  }, [countryStationsLoaded, onLoadingStationsChange]);
 
   // The full smart multi-stop trip plan (drive legs + charging stops) for the active destination
   const [tripPlan, setTripPlan] = useState<SmartTripPlan | null>(null);
@@ -805,12 +812,6 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
         )}
       </MapView>
 
-      {!countryStationsLoaded && (
-        <View style={[styles.loadingPill, { backgroundColor: t.brand }]}>
-          <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 8 }} />
-          <Text style={styles.loadingPillText}>Fetching charging stations...</Text>
-        </View>
-      )}
 
       {/* Floating Station Detail Card (Smooth Slide-up & Fade-in animated) */}
       {renderedStation && (

@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { StyleSheet, View, StatusBar, TouchableOpacity, Text, Modal, ScrollView, Dimensions, useWindowDimensions } from 'react-native';
+import { StyleSheet, View, StatusBar, TouchableOpacity, Text, Modal, ScrollView, Dimensions, useWindowDimensions, ActivityIndicator } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { EVMapAdapter, IMapRef } from '../components/EVMapAdapter';
@@ -50,6 +50,7 @@ export const HomeScreen: React.FC = () => {
   const [tripPlan, setTripPlan] = useState<SmartTripPlan | null>(null);
   const [isPlanningTrip, setIsPlanningTrip] = useState(false);
   const [isTripItineraryMinimized, setIsTripItineraryMinimized] = useState(false);
+  const [isLoadingStations, setIsLoadingStations] = useState(false);
   // On by default — the car pin follows the device's real GPS position continuously from app
   // start. Automatically turns itself off if the user manually overrides the position (dragging
   // the pin or picking a custom "FROM" start point), so it doesn't fight that mid-trip; the
@@ -197,6 +198,14 @@ export const HomeScreen: React.FC = () => {
           )}
         </>
       )}
+      {isLoadingStations && (
+        <View style={[styles.cardLoadingRow, { borderTopColor: t.borderSubtle }]}>
+          <ActivityIndicator size="small" color={t.brand} style={{ marginRight: 6 }} />
+          <Text style={[styles.cardLoadingText, { color: t.textSecondary }]}>
+            Fetching charging stations...
+          </Text>
+        </View>
+      )}
     </View>
   );
 
@@ -267,6 +276,7 @@ export const HomeScreen: React.FC = () => {
           setTripPlan(plan);
           setIsPlanningTrip(isCalculating);
         }}
+        onLoadingStationsChange={setIsLoadingStations}
       />
 
       {isWide ? (
@@ -428,6 +438,18 @@ const styles = StyleSheet.create({
   itineraryHeaderText: {
     fontSize: 12,
     fontWeight: '700',
+  },
+  cardLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 8,
+    marginTop: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  cardLoadingText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   dividerLine: {
     height: 1,
