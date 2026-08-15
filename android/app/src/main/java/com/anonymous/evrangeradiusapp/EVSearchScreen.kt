@@ -3,13 +3,12 @@ package com.anonymous.evrangeradiusapp
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.model.Action
-import androidx.car.app.model.SearchCallback
 import androidx.car.app.model.SearchTemplate
 import androidx.car.app.model.Template
 
 class EVSearchScreen(carContext: CarContext) : Screen(carContext) {
     override fun onGetTemplate(): Template {
-        return SearchTemplate.Builder(object : SearchCallback {
+        return SearchTemplate.Builder(object : SearchTemplate.SearchCallback {
             override fun onSearchSubmitted(searchText: String) {
                 // When search is submitted (via voice input or keyboard)
                 // In a production app, we would search stations or locations using OCM/Overpass API
