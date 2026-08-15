@@ -31,4 +31,14 @@ describe('buildGoogleMapsDirectionsUrl', () => {
     const url = buildGoogleMapsDirectionsUrl(destination, { waypoints: [] });
     expect(url).not.toContain('waypoints=');
   });
+
+  it('always requests turn-by-turn navigation directly, skipping the route-preview screen', () => {
+    expect(buildGoogleMapsDirectionsUrl(destination)).toContain('dir_action=navigate');
+    expect(
+      buildGoogleMapsDirectionsUrl(destination, {
+        origin: { latitude: 13.7563, longitude: 100.5018 },
+        waypoints: [{ latitude: 15.0, longitude: 99.5 }],
+      })
+    ).toContain('dir_action=navigate');
+  });
 });

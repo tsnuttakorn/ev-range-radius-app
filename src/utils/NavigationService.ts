@@ -18,7 +18,14 @@ export function buildGoogleMapsDirectionsUrl(
   destination: MapCoordinates,
   options?: { origin?: MapCoordinates; waypoints?: MapCoordinates[] }
 ): string {
-  const params: string[] = ['api=1', `destination=${encodeURIComponent(coordParam(destination))}`, 'travelmode=driving'];
+  const params: string[] = [
+    'api=1',
+    `destination=${encodeURIComponent(coordParam(destination))}`,
+    'travelmode=driving',
+    // Requests the Google Maps app jump straight into turn-by-turn navigation instead of
+    // stopping on the route-preview screen first (an extra tap otherwise needed on every trip).
+    'dir_action=navigate',
+  ];
   if (options?.origin) {
     params.push(`origin=${encodeURIComponent(coordParam(options.origin))}`);
   }
