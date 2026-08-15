@@ -1,13 +1,41 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { UserEVProfile, MapCoordinates, RangeCalculationResultWithTime, RecentSearchItem } from '../types/ev';
+import { UserEVProfile, MapCoordinates, RangeCalculationResultWithTime, RecentSearchItem, DrivingMode } from '../types/ev';
 import { PRESET_VEHICLES } from '../constants/presetVehicles';
 import { RangeCalculator } from '../utils/RangeCalculator';
 import { TripPlannerService } from '../features/tripPlanner/TripPlannerService';
 
-const REFERENCE_SPEED_KMH = 90; // Matches the reference cruising speed used across the app's range math
 const MAX_RECENT_SEARCHES = 8;
+const PERSIST_DEBOUNCE_MS = 500;
+
+/**
+ * `persist`'s internal subscriber fires on *every* `set()` call to the store, not just ones that
+ * touch a persisted field — so dragging a slider (which calls `set()` on every step, including
+ * `currentSoC`, which isn't even in `partialize` below) was re-serializing the persisted slice and
+ * hitting the AsyncStorage native bridge dozens of times a second. That per-tick I/O is what was
+ * actually stuttering the drag gesture, not the slider's own rendering. Debouncing the write here
+ * — rather than throttling the app state updates themselves — keeps every drag tick fast/in-memory
+ * and only touches storage once things settle, with no change to how live the UI feels.
+ */
+const debouncedAsyncStorage = {
+  getItem: AsyncStorage.getItem,
+  removeItem: AsyncStorage.removeItem,
+  setItem: (() => {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let pending: { name: string; value: string } | null = null;
+    return (name: string, value: string) => {
+      pending = { name, value };
+      if (timeout) clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        if (pending) AsyncStorage.setItem(pending.name, pending.value);
+        pending = null;
+        timeout = null;
+      }, PERSIST_DEBOUNCE_MS);
+      return Promise.resolve();
+    };
+  })(),
+};
 
 // Convert a preset vehicle into a UserEVProfile
 const getProfileFromPreset = (id: string): UserEVProfile => {
@@ -31,6 +59,8 @@ interface EVStoreState {
   /** Preferred charge limit (%) for trip-planning stops — a battery-health habit (e.g. "usually charge to 80%"). The planner will still charge past this if the remaining trip genuinely needs it. */
   preferredMaxChargeSoC: number;
   isAirConActive: boolean;
+  /** City/Mixed/Highway usage profile — feeds directly into the range formula (see `DrivingMode`). */
+  drivingMode: DrivingMode;
   userLocation: MapCoordinates;
   savedVehicles: UserEVProfile[];
   /** 'system' dynamically follows the OS light/dark setting; 'light'/'dark' pin it explicitly. */
@@ -45,6 +75,7 @@ interface EVStoreActions {
   setTargetReserveSoC: (reserve: number) => void;
   setPreferredMaxChargeSoC: (limit: number) => void;
   toggleAirCon: () => void;
+  setDrivingMode: (mode: DrivingMode) => void;
   setUserLocation: (coords: MapCoordinates) => void;
   addCustomVehicle: (vehicle: UserEVProfile) => void;
   updateVehicle: (vehicle: UserEVProfile) => void;
@@ -68,6 +99,7 @@ export const useEVStore = create<EVStore>()(
       targetReserveSoC: 20,
       preferredMaxChargeSoC: 80,
       isAirConActive: true,
+      drivingMode: 'MIXED',
       userLocation: {
         latitude: 13.7563,
         longitude: 100.5018, // Bangkok
@@ -91,6 +123,7 @@ export const useEVStore = create<EVStore>()(
       setTargetReserveSoC: (reserve) => set({ targetReserveSoC: Math.max(0, Math.min(100, reserve)) }),
       setPreferredMaxChargeSoC: (limit) => set({ preferredMaxChargeSoC: Math.max(20, Math.min(100, limit)) }),
       toggleAirCon: () => set((state) => ({ isAirConActive: !state.isAirConActive })),
+      setDrivingMode: (mode) => set({ drivingMode: mode }),
       setUserLocation: (coords) => set({ userLocation: coords }),
       addCustomVehicle: (vehicle) =>
         set((state) => ({
@@ -127,20 +160,24 @@ export const useEVStore = create<EVStore>()(
 
       // --- Computed Selector ---
       getCalculationResult: () => {
-        const { activeVehicle, currentSoC, targetReserveSoC, preferredMaxChargeSoC, isAirConActive } = get();
+        const { activeVehicle, currentSoC, targetReserveSoC, preferredMaxChargeSoC, isAirConActive, drivingMode } =
+          get();
         const result = RangeCalculator.calculate({
           vehicle: activeVehicle,
           currentSoC,
           targetReserveSoC,
-          avgSpeedKmH: REFERENCE_SPEED_KMH,
           airConActive: isAirConActive,
+          drivingMode,
         });
 
         // Rough time budget: how long to drive the safe range, plus how long to charge back up
         // afterward. Charging assumes a representative DC fast charger at the vehicle's own max
         // speed (best case) recharging from the reserve level to the preferred charge limit —
-        // there's no actual trip/charger chosen yet, so this is deliberately an estimate.
-        const estimatedDriveTimeMinutes = (result.safeRangeKm / REFERENCE_SPEED_KMH) * 60;
+        // there's no actual trip/charger chosen yet, so this is deliberately an estimate. Drive
+        // time uses the driving mode's own reference speed (city driving covers the same range
+        // more slowly than highway driving does, independent of the range figure itself).
+        const avgSpeedKmH = RangeCalculator.getAvgSpeedKmH(drivingMode);
+        const estimatedDriveTimeMinutes = (result.safeRangeKm / avgSpeedKmH) * 60;
         const estimatedChargeTimeMinutes = TripPlannerService.estimateChargeTimeMinutes(
           activeVehicle.batteryCapacityKWh,
           activeVehicle.maxDcChargeKW,
@@ -160,14 +197,15 @@ export const useEVStore = create<EVStore>()(
     }),
     {
       name: 'ev-range-store',
-      storage: createJSONStorage(() => AsyncStorage),
-      // Persist activeVehicle, savedVehicles, targetReserveSoC, preferredMaxChargeSoC, themeMode, and recentSearches
+      storage: createJSONStorage(() => debouncedAsyncStorage),
+      // Persist activeVehicle, savedVehicles, targetReserveSoC, preferredMaxChargeSoC, themeMode, drivingMode, and recentSearches
       partialize: (state) => ({
         activeVehicle: state.activeVehicle,
         savedVehicles: state.savedVehicles,
         targetReserveSoC: state.targetReserveSoC,
         preferredMaxChargeSoC: state.preferredMaxChargeSoC,
         themeMode: state.themeMode,
+        drivingMode: state.drivingMode,
         recentSearches: state.recentSearches,
       }),
     }

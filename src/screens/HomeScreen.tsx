@@ -7,6 +7,7 @@ import { RangeControlPanel } from '../components/RangeControlPanel';
 import { LocationSearchField } from '../components/LocationSearchField';
 import { TripItinerary } from '../components/TripItinerary';
 import { VehicleSelectModal } from './VehicleSelectModal';
+import { useShallow } from 'zustand/react/shallow';
 import { useEVStore } from '../store/useEVStore';
 import { ChargingStation } from '../utils/StationGenerator';
 import { MapCoordinates } from '../types/ev';
@@ -18,7 +19,26 @@ const TypedStatusBar = StatusBar as any;
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export const HomeScreen: React.FC = () => {
-  const { userLocation, setUserLocation, activeVehicle, getCalculationResult, themeMode: themePreference, toggleThemeMode } = useEVStore();
+  const { userLocation, setUserLocation, activeVehicle, getCalculationResult, themeMode: themePreference, toggleThemeMode } = useEVStore(
+    useShallow((state) => ({
+      userLocation: state.userLocation,
+      setUserLocation: state.setUserLocation,
+      activeVehicle: state.activeVehicle,
+      getCalculationResult: state.getCalculationResult,
+      themeMode: state.themeMode,
+      toggleThemeMode: state.toggleThemeMode,
+      // `getCalculationResult` is a stable function reference (a store action), so it doesn't by
+      // itself make this component re-render when the values it reads change — these five aren't
+      // otherwise used directly below, they're included purely so a slider drag, the AC toggle,
+      // or a driving mode change forces a re-render here too, recomputing safeRangeKm/maxRangeKm
+      // (below) so the map's range circles/isochrone actually update instead of going stale.
+      currentSoC: state.currentSoC,
+      targetReserveSoC: state.targetReserveSoC,
+      preferredMaxChargeSoC: state.preferredMaxChargeSoC,
+      isAirConActive: state.isAirConActive,
+      drivingMode: state.drivingMode,
+    }))
+  );
   const themeMode = useResolvedThemeMode();
   const { safeRangeKm, maxRangeKm } = getCalculationResult();
 
@@ -252,9 +272,7 @@ export const HomeScreen: React.FC = () => {
           </SafeAreaView>
 
           {/* Floating Control Panel placed at the bottom */}
-          <SafeAreaView pointerEvents="box-none" style={styles.overlayContainer} edges={['bottom']}>
-            <RangeControlPanel isPlanning={!!destination} onMaximize={() => setSelectedStation(null)} />
-          </SafeAreaView>
+          <RangeControlPanel isPlanning={!!destination} onMaximize={() => setSelectedStation(null)} />
         </>
       )}
 

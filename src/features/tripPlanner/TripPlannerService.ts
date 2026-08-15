@@ -1,10 +1,9 @@
-import { MapCoordinates, UserEVProfile } from '../../types/ev';
+import { MapCoordinates, UserEVProfile, DrivingMode } from '../../types/ev';
 import { RangeCalculator } from '../../utils/RangeCalculator';
 import { ChargingStation, getDistanceKm } from '../../utils/StationGenerator';
 import { ChargeStop, SmartTripPlan, TripLeg } from './types';
 
-const AVG_SPEED_KMH = 90; // Reference cruising speed used across the app's range math
-const MAX_STOPS = 4; // Safety cap so an unreachable trip can't loop forever
+const MAX_STOPS = 15; // Safety cap so an unreachable trip can't loop forever
 const DEFAULT_MAX_CHARGE_SOC = 80; // Fallback charge-limit preference if none is supplied
 const CHARGE_TIME_BUFFER_SOC = 5; // Small safety margin added on top of the bare minimum needed
 
@@ -25,6 +24,8 @@ export interface PlanSmartTripInput {
   /** Driver's preferred charge limit (%) at stops — a battery-health habit. Defaults to 80% if omitted. The planner still charges past it when the remaining trip genuinely requires more. */
   preferredMaxChargeSoC?: number;
   airConActive: boolean;
+  /** City/Mixed/Highway usage profile — feeds into the same range formula RangeControlPanel uses (see RangeCalculator). Defaults to 'MIXED' if omitted, matching `RangeCalculator.getEffectiveRangeKm`'s own default. */
+  drivingMode?: DrivingMode;
   fetchRoute: RouteFetcher;
   fetchStations: StationFetcher;
 }
@@ -95,12 +96,17 @@ export class TripPlannerService {
    * power or the vehicle's own max charge speed.
    *
    * If a charging stop was needed, also attempts one alternative route (see `planCore` /
-   * `.alternative` on the result) by forcing a different first station. If the primary pick
-   * isn't reported "available" (occupied/under maintenance/unknown), the alternative search is
-   * biased toward a station that is — a realistic backup plan is "somewhere else that's
-   * actually open," not just "the next-closest option regardless of status." (Status still
-   * never affects the *primary* pick or reachability itself — see the note in `planCore` on why
-   * that data is too unreliable to gate on.)
+   * `.alternative` on the result) by forcing a different first station. Unlike the primary pick
+   * — which is scored by how much closer to the destination a station gets you — the backup
+   * station is deliberately scored differently: it must be the physically *nearest* reachable
+   * charger to where the driver actually is, and it must not require backtracking (a station
+   * further from the destination than the driver's current position already is gets excluded,
+   * not just penalized). A backup plan the driver has to turn around and drive back toward isn't
+   * actually useful. If the primary pick isn't reported "available" (occupied/under
+   * maintenance/unknown), the search is additionally biased toward a station that is — a
+   * realistic backup plan is "somewhere else nearby that's actually open." (Status still never
+   * affects the *primary* pick or reachability itself — see the note in `planCore` on why that
+   * data is too unreliable to gate on.)
    */
   public static async planSmartTrip(input: PlanSmartTripInput): Promise<SmartTripPlan> {
     const primary = await this.planCore(input, new Set());
@@ -115,7 +121,11 @@ export class TripPlannerService {
       const avoidFirstChoice = new Set([primaryFirstStop.station.id]);
       const preferAvailableFirstStop = primaryFirstStop.station.status !== 'AVAILABLE';
 
-      const alt = await this.planCore(input, avoidFirstChoice, { preferAvailableFirstStop });
+      const alt = await this.planCore(input, avoidFirstChoice, {
+        preferAvailableFirstStop,
+        preferNearestNoBacktrack: true,
+        primaryStation: primaryFirstStop.station,
+      });
       if (alt.reachable && alt.stops[0]?.station.id !== primaryFirstStop.station.id) {
         primary.alternative = alt;
       }
@@ -128,20 +138,71 @@ export class TripPlannerService {
    * The core hop-by-hop planning loop, factored out so `planSmartTrip` can call it twice — once
    * normally, once with the first stop's station pre-excluded — to surface an alternative route.
    */
+  private static findClosestCoordinateIndex(
+    coordinates: MapCoordinates[],
+    position: MapCoordinates
+  ): number {
+    let closestIdx = 0;
+    let minDistance = Infinity;
+    for (let i = 0; i < coordinates.length; i++) {
+      const dist = getDistanceKm(coordinates[i], position);
+      if (dist < minDistance) {
+        minDistance = dist;
+        closestIdx = i;
+      }
+    }
+    return closestIdx;
+  }
+
+  private static getDistanceAlongCoords(
+    coordinates: MapCoordinates[],
+    fromIdx: number,
+    toIdx: number
+  ): number {
+    let dist = 0;
+    const start = Math.min(fromIdx, toIdx);
+    const end = Math.max(fromIdx, toIdx);
+    for (let i = start; i < end; i++) {
+      dist += getDistanceKm(coordinates[i], coordinates[i + 1]);
+    }
+    return dist;
+  }
+
+  /**
+   * The core hop-by-hop planning loop, factored out so `planSmartTrip` can call it twice — once
+   * normally, once with the first stop's station pre-excluded — to surface an alternative route.
+   */
+  /**
+   * The core hop-by-hop planning loop, factored out so `planSmartTrip` can call it twice — once
+   * normally, once with the first stop's station pre-excluded — to surface an alternative route.
+   */
   private static async planCore(
     input: PlanSmartTripInput,
     preExcludedStationIds: Set<string>,
-    options: { preferAvailableFirstStop?: boolean } = {}
+    options: { preferAvailableFirstStop?: boolean; preferNearestNoBacktrack?: boolean; primaryStation?: ChargingStation } = {}
   ): Promise<SmartTripPlan> {
     const { origin, destination, vehicle, currentSoC, targetReserveSoC, airConActive, fetchRoute, fetchStations } = input;
+    const drivingMode = input.drivingMode ?? 'MIXED';
     const preferredMaxChargeSoC =
       input.preferredMaxChargeSoC && input.preferredMaxChargeSoC > 0
         ? Math.min(100, input.preferredMaxChargeSoC)
         : DEFAULT_MAX_CHARGE_SOC;
 
-    const effectiveRangeKm = RangeCalculator.getEffectiveRangeKm(vehicle, airConActive);
+    const effectiveRangeKm = RangeCalculator.getEffectiveRangeKm(vehicle, airConActive, drivingMode);
+    const avgSpeedKmH = RangeCalculator.getAvgSpeedKmH(drivingMode);
     const socForDistance = (distanceKm: number) =>
       effectiveRangeKm > 0 ? (distanceKm / effectiveRangeKm) * 100 : Infinity;
+
+    console.log(`[TripPlanner Debug] ===== Starting trip planning pass =====`);
+    console.log(`[TripPlanner Debug] Origin: ${JSON.stringify(origin)}`);
+    console.log(`[TripPlanner Debug] Destination: ${JSON.stringify(destination)}`);
+    console.log(`[TripPlanner Debug] Vehicle battery: ${vehicle.batteryCapacityKWh} kWh, SoC: ${currentSoC}%, Reserve: ${targetReserveSoC}%`);
+    console.log(`[TripPlanner Debug] Driving Mode: ${drivingMode}, Effective Range: ${effectiveRangeKm.toFixed(1)} km`);
+
+    // 1. Fetch the complete route from origin to destination first (Google Maps / OSRM shape)
+    const mainRoute = await this.fetchRouteOrFallback(fetchRoute, origin, destination);
+    const mainCoords = mainRoute.coordinates;
+    console.log(`[TripPlanner Debug] Main route distance: ${mainRoute.distanceKm.toFixed(1)} km, Coordinates count: ${mainCoords.length}`);
 
     const legs: TripLeg[] = [];
     const stops: ChargeStop[] = [];
@@ -149,94 +210,158 @@ export class TripPlannerService {
 
     let position = origin;
     let soc = currentSoC;
+    let currentIdx = 0;
 
     for (let hop = 0; hop < MAX_STOPS; hop++) {
-      const directRoute = await this.fetchRouteOrFallback(fetchRoute, position, destination);
-
+      currentIdx = this.findClosestCoordinateIndex(mainCoords, position);
+      const remainingDistance = this.getDistanceAlongCoords(mainCoords, currentIdx, mainCoords.length - 1);
       const safeRangeNow = Math.max(0, ((soc - targetReserveSoC) / 100) * effectiveRangeKm);
 
-      if (directRoute.distanceKm <= safeRangeNow) {
-        // Final leg — destination is directly reachable from here.
+      console.log(`\n[TripPlanner Debug] --- Hop ${hop} ---`);
+      console.log(`[TripPlanner Debug] Position Index: ${currentIdx}/${mainCoords.length - 1}, Remaining Distance: ${remainingDistance.toFixed(1)} km`);
+      console.log(`[TripPlanner Debug] Current SoC: ${soc.toFixed(1)}%, Safe range with reserve: ${safeRangeNow.toFixed(1)} km`);
+
+      if (remainingDistance <= safeRangeNow) {
+        console.log(`[TripPlanner Debug] Destination is directly reachable! Creating final leg.`);
         legs.push({
           from: position,
           to: destination,
-          distanceKm: directRoute.distanceKm,
-          driveTimeMinutes: (directRoute.distanceKm / AVG_SPEED_KMH) * 60,
-          coordinates: directRoute.coordinates,
+          distanceKm: remainingDistance,
+          driveTimeMinutes: (remainingDistance / avgSpeedKmH) * 60,
+          coordinates: mainCoords.slice(currentIdx),
         });
-        soc = Math.max(0, soc - socForDistance(directRoute.distanceKm));
+        soc = Math.max(0, soc - socForDistance(remainingDistance));
         return this.buildResult(legs, stops, true, soc);
       }
 
-      // Need a charging stop: search around the current simulated position.
-      const maxReachableKm = Math.max(0, (soc / 100) * effectiveRangeKm);
-      const candidates = await fetchStations(position, maxReachableKm);
-      const reachable = candidates.filter(
-        (s) => s.distanceKm <= safeRangeNow && !visitedStationIds.has(s.id)
-      );
+      // Need a charging stop: trace along the main route to find where the search center should be.
+      // We place the search center at 85% of the safe range to guarantee any detours remain reachable.
+      const searchTargetDistance = safeRangeNow * 0.85;
+      let targetSearchIdx = currentIdx;
+      let accumulatedDist = 0;
+      for (let i = currentIdx; i < mainCoords.length - 1; i++) {
+        const segDist = getDistanceKm(mainCoords[i], mainCoords[i + 1]);
+        if (accumulatedDist + segDist > searchTargetDistance) {
+          targetSearchIdx = i;
+          break;
+        }
+        accumulatedDist += segDist;
+        targetSearchIdx = i + 1;
+      }
+
+      const targetSearchCenter = mainCoords[targetSearchIdx];
+      console.log(`[TripPlanner Debug] Search Center set at: index=${targetSearchIdx}/${mainCoords.length - 1}, distance=${accumulatedDist.toFixed(1)} km, coordinates=${JSON.stringify(targetSearchCenter)}`);
+
+      // Query stations around the target search center with a 50km radius
+      const candidates = await fetchStations(targetSearchCenter, 50);
+      console.log(`[TripPlanner Debug] Found ${candidates.length} candidates near search center`);
+
+      const reachable = candidates.filter((s) => {
+        const sIdx = this.findClosestCoordinateIndex(mainCoords, s);
+        const routeLegDistance = this.getDistanceAlongCoords(mainCoords, currentIdx, sIdx);
+        const stationDetourDistance = getDistanceKm(mainCoords[sIdx], s);
+        const distToStation = routeLegDistance + stationDetourDistance;
+        const isReachable = distToStation <= safeRangeNow;
+        const isVisited = visitedStationIds.has(s.id);
+        
+        console.log(`  - [Candidate] ${s.name} (${s.id}) at ${distToStation.toFixed(1)} km (route: ${routeLegDistance.toFixed(1)} km, detour: ${stationDetourDistance.toFixed(1)} km), Reachable: ${isReachable}, Visited: ${isVisited}`);
+        
+        return isReachable && !isVisited;
+      });
+
+      console.log(`[TripPlanner Debug] Reachable & unvisited candidates count: ${reachable.length}`);
 
       if (reachable.length === 0) {
+        console.warn(`[TripPlanner Debug] FAILED: No reachable charging stations found within safe battery range (${safeRangeNow.toFixed(1)} km) at hop ${hop}`);
         return this.buildResult(legs, stops, false, soc);
       }
 
-      // Live "status" (available/occupied/maintenance) isn't factored into the *primary* pick or
-      // reachability — it's self-reported and frequently stale, and excluding or heavily
-      // penalizing stations on it was causing viable routes to come back as falsely unreachable.
-      // The one exception: when explicitly asked to bias toward availability (used for the
-      // alternative/backup route, at the first stop only — see planSmartTrip), a non-available
-      // station gets a heavy but not disqualifying penalty, so an available option wins if one
-      // is reachable, while still falling back to the best station overall if not.
       const biasTowardAvailability = !!options.preferAvailableFirstStop && hop === 0;
-
-      // DC is strictly preferred: only consider AC chargers when no DC charger is reachable at
-      // all. This is a hard filter, not a scoring nudge — a further-but-DC station always wins
-      // over a closer-but-AC one, since AC's charge speed disadvantage matters far more than a
-      // few extra km of driving.
       const reachableDC = reachable.filter((s) => s.type === 'DC');
-      const candidatePool = reachableDC.length > 0 ? reachableDC : reachable;
+      let candidatePool = reachableDC.length > 0 ? reachableDC : reachable;
+
+      const preferNearestNoBacktrack = !!options.preferNearestNoBacktrack && hop === 0;
+      if (preferNearestNoBacktrack) {
+        const noBacktrack = candidatePool.filter((s) => {
+          if (options.primaryStation) {
+            const distToPrimary = getDistanceKm(s, options.primaryStation);
+            if (distToPrimary <= 10) return true;
+          }
+          const distToDest = getDistanceKm(s, destination);
+          const currentDistToDest = getDistanceKm(position, destination);
+          return distToDest < currentDistToDest;
+        });
+        if (noBacktrack.length > 0) candidatePool = noBacktrack;
+      }
 
       let best: ChargingStation | null = null;
       let bestScore = Infinity;
       for (const station of candidatePool) {
-        const distToDest = getDistanceKm(station, destination);
-        let score = distToDest;
+        let score = getDistanceKm(station, destination);
+        
+        if (preferNearestNoBacktrack && options.primaryStation) {
+          const distToPrimary = getDistanceKm(station, options.primaryStation);
+          if (distToPrimary <= 10) {
+            score = getDistanceKm(position, station);
+          }
+        }
+
         if (biasTowardAvailability && station.status !== 'AVAILABLE') score += 150;
         if (score < bestScore) {
           bestScore = score;
           best = station;
         }
       }
+
       if (!best) {
+        console.warn(`[TripPlanner Debug] FAILED: No candidate station selected at hop ${hop}`);
         return this.buildResult(legs, stops, false, soc);
       }
 
       const stationCoords: MapCoordinates = { latitude: best.latitude, longitude: best.longitude };
-      const legRoute = await this.fetchRouteOrFallback(fetchRoute, position, stationCoords);
+      
+      const bestIdxOnRoute = this.findClosestCoordinateIndex(mainCoords, stationCoords);
+      const routeLegDistance = this.getDistanceAlongCoords(mainCoords, currentIdx, bestIdxOnRoute);
+      const stationDetourDistance = getDistanceKm(mainCoords[bestIdxOnRoute], stationCoords);
+      const totalLegDistance = routeLegDistance + stationDetourDistance;
 
-      const arrivalSoC = Math.max(0, soc - socForDistance(legRoute.distanceKm));
+      const legCoordinates = [
+        ...mainCoords.slice(currentIdx, Math.max(currentIdx + 1, bestIdxOnRoute + 1)),
+        stationCoords,
+      ];
 
-      // Decide how much to charge. The preferred limit is a hard cap by default — charge to it
-      // and stop, full stop. The *only* reason to ever charge past it is if capping here would
-      // strand the trip: neither the destination nor any further charger would be reachable
-      // afterwards. In that one exceptional case, charge just enough (up to 100%) to reach
-      // whichever of those is closer, so the trip can still continue.
+      const arrivalSoC = Math.max(0, soc - socForDistance(totalLegDistance));
+
       const safeRangeAtPreferredLimit = Math.max(0, ((preferredMaxChargeSoC - targetReserveSoC) / 100) * effectiveRangeKm);
-      const remainingDirect = await this.fetchRouteOrFallback(fetchRoute, stationCoords, destination);
-      const reachesDestinationAtPreferredLimit = remainingDirect.distanceKm <= safeRangeAtPreferredLimit;
+      const remainingDistanceAtStation = this.getDistanceAlongCoords(mainCoords, bestIdxOnRoute, mainCoords.length - 1);
+      const reachesDestinationAtPreferredLimit = remainingDistanceAtStation <= safeRangeAtPreferredLimit;
 
       let departureSoC = preferredMaxChargeSoC;
       let exceededPreferredLimit = false;
 
       if (!reachesDestinationAtPreferredLimit) {
-        const maxLookaheadKm = Math.max(0, (100 / 100) * effectiveRangeKm);
-        const furtherCandidates = await fetchStations(stationCoords, maxLookaheadKm);
+        const nextSearchIdx = this.findClosestCoordinateIndex(mainCoords, stationCoords);
+        const lookaheadTargetDistance = safeRangeAtPreferredLimit * 0.85;
+        let lookaheadAccum = 0;
+        let targetLookaheadIdx = nextSearchIdx;
+        for (let i = nextSearchIdx; i < mainCoords.length - 1; i++) {
+          const segDist = getDistanceKm(mainCoords[i], mainCoords[i + 1]);
+          if (lookaheadAccum + segDist > lookaheadTargetDistance) {
+            targetLookaheadIdx = i;
+            break;
+          }
+          lookaheadAccum += segDist;
+          targetLookaheadIdx = i + 1;
+        }
+        const targetLookaheadCenter = mainCoords[targetLookaheadIdx];
+        const furtherCandidates = await fetchStations(targetLookaheadCenter, 50);
+        
         const anotherStationReachableAtPreferredLimit = furtherCandidates.some(
-          (s) => s.id !== best!.id && !visitedStationIds.has(s.id) && s.distanceKm <= safeRangeAtPreferredLimit
+          (s) => s.id !== best!.id && !visitedStationIds.has(s.id) && (this.getDistanceAlongCoords(mainCoords, bestIdxOnRoute, this.findClosestCoordinateIndex(mainCoords, s)) + getDistanceKm(mainCoords[this.findClosestCoordinateIndex(mainCoords, s)], s)) <= safeRangeAtPreferredLimit
         );
 
         if (!anotherStationReachableAtPreferredLimit) {
-          // Genuine last resort: capping at the preferred limit would strand the trip here.
-          const socNeededForRemaining = socForDistance(remainingDirect.distanceKm) + targetReserveSoC;
+          const socNeededForRemaining = socForDistance(remainingDistanceAtStation) + targetReserveSoC;
           departureSoC = Math.min(100, Math.max(socNeededForRemaining + CHARGE_TIME_BUFFER_SOC, preferredMaxChargeSoC));
           exceededPreferredLimit = departureSoC > preferredMaxChargeSoC + 0.5;
         }
@@ -254,12 +379,16 @@ export class TripPlannerService {
       );
       const energyAddedKWh = ((departureSoC - arrivalSoC) / 100) * vehicle.batteryCapacityKWh;
 
+      console.log(`[TripPlanner Debug] Hop ${hop} SUCCESS: Chose ${best.name} (${best.id})`);
+      console.log(`  - Leg distance: ${totalLegDistance.toFixed(1)} km, Drive time: ${((totalLegDistance / avgSpeedKmH) * 60).toFixed(0)} mins`);
+      console.log(`  - Arrival SoC: ${arrivalSoC.toFixed(1)}%, Departure SoC: ${departureSoC.toFixed(1)}%, Charge time: ${chargeTimeMinutes.toFixed(0)} mins`);
+
       legs.push({
         from: position,
         to: stationCoords,
-        distanceKm: legRoute.distanceKm,
-        driveTimeMinutes: (legRoute.distanceKm / AVG_SPEED_KMH) * 60,
-        coordinates: legRoute.coordinates,
+        distanceKm: totalLegDistance,
+        driveTimeMinutes: (totalLegDistance / avgSpeedKmH) * 60,
+        coordinates: legCoordinates,
       });
       stops.push({
         station: best,
@@ -275,7 +404,7 @@ export class TripPlannerService {
       soc = departureSoC;
     }
 
-    // Exceeded the stop budget without reaching the destination.
+    console.warn(`[TripPlanner Debug] FAILED: Exceeded maximum stop limit (${MAX_STOPS}) before reaching destination.`);
     return this.buildResult(legs, stops, false, soc);
   }
 
@@ -317,6 +446,31 @@ export class TripPlannerService {
       totalTripTimeMinutes: this.round(totalDriveTimeMinutes + totalChargeTimeMinutes),
       finalArrivalSoC: this.round(finalArrivalSoC),
     };
+  }
+
+  private static getPointAlongRoute(
+    coordinates: MapCoordinates[],
+    targetDistanceKm: number
+  ): MapCoordinates {
+    if (coordinates.length === 0) return { latitude: 0, longitude: 0 };
+    if (coordinates.length === 1 || targetDistanceKm <= 0) return coordinates[0];
+
+    let accumulatedDistance = 0;
+    for (let i = 0; i < coordinates.length - 1; i++) {
+      const p1 = coordinates[i];
+      const p2 = coordinates[i + 1];
+      const segmentDistance = getDistanceKm(p1, p2);
+      
+      if (accumulatedDistance + segmentDistance >= targetDistanceKm) {
+        const ratio = (targetDistanceKm - accumulatedDistance) / segmentDistance;
+        return {
+          latitude: p1.latitude + (p2.latitude - p1.latitude) * ratio,
+          longitude: p1.longitude + (p2.longitude - p1.longitude) * ratio,
+        };
+      }
+      accumulatedDistance += segmentDistance;
+    }
+    return coordinates[coordinates.length - 1];
   }
 
   private static round(value: number, decimals: number = 1): number {

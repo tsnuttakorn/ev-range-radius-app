@@ -9,6 +9,19 @@
 export type RatingStandard = 'NEDC' | 'WLTP' | 'EPA' | 'CUSTOM';
 
 /**
+ * Driving mode / usage profile — how the vehicle is actually being driven, distinct from
+ * `RatingStandard` (which is *how the range was tested*). Affects both real-world efficiency and
+ * the average speed assumed for time estimates:
+ * - CITY: low speeds, frequent stops — regenerative braking recovers energy the official rating
+ *   doesn't fully credit, so real-world range tends to beat it.
+ * - MIXED: the baseline the official rating standards (WLTP/EPA/NEDC) already approximate roughly
+ *   — applies no further range adjustment.
+ * - HIGHWAY: sustained high speed — aerodynamic drag scales with the square of speed, so range
+ *   drops noticeably below the rating despite there being no stop-and-go driving to blame it on.
+ */
+export type DrivingMode = 'CITY' | 'MIXED' | 'HIGHWAY';
+
+/**
  * Pre-defined EV specifications stored in the database.
  */
 export interface EVPresetModel {
@@ -66,10 +79,10 @@ export interface RangeCalculationInput {
   currentSoC: number;
   /** Target reserve State of Charge to retain at destination as percentage (typically 10 - 20) */
   targetReserveSoC: number;
-  /** Planned or average speed in km/h */
-  avgSpeedKmH: number;
   /** Indicates whether the air conditioning system is active (affects energy consumption rate) */
   airConActive: boolean;
+  /** Driving mode / usage profile — see `DrivingMode`. Affects both range and time estimates. */
+  drivingMode: DrivingMode;
 }
 
 /**

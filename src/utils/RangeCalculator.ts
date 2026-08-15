@@ -1,19 +1,60 @@
-import { RangeCalculationInput, RangeCalculationResult, MapCoordinates } from '../types/ev';
+import { RangeCalculationInput, RangeCalculationResult, MapCoordinates, DrivingMode } from '../types/ev';
 
 export class RangeCalculator {
   /**
-   * Standard efficiency factors based on testing standards
+   * Standard efficiency factors based on testing standards — how much of the official lab-tested
+   * range typically survives in real-world driving. NEDC is a known outlier among the three: its
+   * test cycle is the least representative of real driving (low, steady speeds, minimal
+   * acceleration), so real-world range consistently lands well below the rated figure even under
+   * favorable conditions — 0.9 reflects that gap explicitly (nudged up twice, from an initial 0.8
+   * then 0.85, after user-reported real-world NEDC range still coming in lower than expected each
+   * time; not calibrated against a specific vehicle's logged numbers — revisit if it's still off
+   * once we have concrete before/after figures to check against, since blind nudges are running
+   * out of room: WLTP is already at its 1.0 ceiling). WLTP and EPA are each set to 1.0,
+   * i.e. the vehicle's *maximum potential* under that standard: both cycles are already
+   * calibrated much closer to real-world driving, so the official rating is treated as the
+   * achievable ceiling rather than something to further discount by default — `customEfficiencyFactor`
+   * (and the AC penalty below) still pull the *estimate* down from there for a specific vehicle/trip.
    */
   private static readonly EFFICIENCY_FACTORS = {
-    NEDC: 0.72,
-    WLTP: 0.83,
-    EPA: 0.92,
+    NEDC: 0.9,
+    WLTP: 1.0,
+    EPA: 1.0,
   };
 
   /**
-   * Penalty multiplier for range when Air Conditioning is active
+   * Penalty multiplier for range when Air Conditioning is active. Nudged up from 0.93 alongside
+   * the standards above — see that comment.
    */
-  private static readonly AIR_CON_PENALTY = 0.93;
+  private static readonly AIR_CON_PENALTY = 0.95;
+
+  /**
+   * Range multiplier per driving mode, applied on top of the rating-standard factor above — see
+   * `DrivingMode` for the reasoning behind each figure. MIXED is the neutral baseline (1.0) since
+   * that's what the rating standards already approximate.
+   */
+  private static readonly DRIVING_MODE_RANGE_FACTORS: Record<DrivingMode, number> = {
+    CITY: 1.1,
+    MIXED: 1.0,
+    HIGHWAY: 0.8,
+  };
+
+  /**
+   * Reference average speed (km/h) per driving mode, used only for the *time* estimates
+   * (drive/charge minutes) — not the range math itself. Deliberately separate from
+   * `DRIVING_MODE_RANGE_FACTORS`: a slower city speed doesn't imply a shorter city range (the
+   * opposite, if anything, thanks to regen), it just means covering that range takes longer.
+   */
+  private static readonly DRIVING_MODE_AVG_SPEED_KMH: Record<DrivingMode, number> = {
+    CITY: 40,
+    MIXED: 90,
+    HIGHWAY: 110,
+  };
+
+  /** The reference average speed (km/h) for a given driving mode — see `DRIVING_MODE_AVG_SPEED_KMH`. */
+  public static getAvgSpeedKmH(drivingMode: DrivingMode): number {
+    return this.DRIVING_MODE_AVG_SPEED_KMH[drivingMode];
+  }
 
   /**
    * Helper to round a number to a specific decimal place (default 1)
@@ -30,7 +71,10 @@ export class RangeCalculator {
    */
   public static getEffectiveRangeKm(
     vehicle: RangeCalculationInput['vehicle'],
-    airConActive: boolean
+    airConActive: boolean,
+    // Defaults to MIXED (no adjustment) so existing callers that don't yet pass a driving mode —
+    // e.g. trip planning, which doesn't collect one — keep their prior, unaffected behavior.
+    drivingMode: DrivingMode = 'MIXED'
   ): number {
     let baseFactor = 1.0;
     if (vehicle.ratingStandard === 'CUSTOM') {
@@ -40,7 +84,8 @@ export class RangeCalculator {
       baseFactor = standardFactor * vehicle.customEfficiencyFactor;
     }
     const airConPenalty = airConActive ? this.AIR_CON_PENALTY : 1.0;
-    return vehicle.officialRangeKm * baseFactor * airConPenalty;
+    const drivingModeFactor = this.DRIVING_MODE_RANGE_FACTORS[drivingMode];
+    return vehicle.officialRangeKm * baseFactor * airConPenalty * drivingModeFactor;
   }
 
   /**
@@ -50,10 +95,10 @@ export class RangeCalculator {
    * @returns The calculated RangeCalculationResult with rounded values.
    */
   public static calculate(input: RangeCalculationInput): RangeCalculationResult {
-    const { vehicle, currentSoC, targetReserveSoC, airConActive } = input;
+    const { vehicle, currentSoC, targetReserveSoC, airConActive, drivingMode } = input;
 
     // 1-3. Total Real-World Range (flat-to-empty, 100% SoC)
-    const totalRealWorldRangeKm = this.getEffectiveRangeKm(vehicle, airConActive);
+    const totalRealWorldRangeKm = this.getEffectiveRangeKm(vehicle, airConActive, drivingMode);
 
     // 4. Net Usable SoC %
     const netUsableSoC = Math.max(0, currentSoC - targetReserveSoC);

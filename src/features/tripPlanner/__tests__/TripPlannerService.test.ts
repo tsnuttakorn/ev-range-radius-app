@@ -201,7 +201,7 @@ describe('TripPlannerService.planSmartTrip', () => {
 
   it('charges past the preferred limit when the remaining leg genuinely requires it', async () => {
     const origin: MapCoordinates = { latitude: 0, longitude: 0 };
-    const destination: MapCoordinates = { latitude: 400 / 111, longitude: 0 };
+    const destination: MapCoordinates = { latitude: 430 / 111, longitude: 0 };
     const midStation = makeStation({
       id: 'midpoint-dc',
       latitude: 200 / 111,
@@ -216,7 +216,7 @@ describe('TripPlannerService.planSmartTrip', () => {
       vehicle,
       currentSoC: 90,
       targetReserveSoC: 15,
-      preferredMaxChargeSoC: 60, // below the ~73% the remaining ~200km leg actually needs
+      preferredMaxChargeSoC: 60, // below the ~70.5% the remaining ~230km leg actually needs
       airConActive: false,
       fetchRoute: makeFetchRoute(),
       fetchStations: async (center) => {
@@ -383,12 +383,58 @@ describe('TripPlannerService.planSmartTrip', () => {
 
     expect(plan.stops[0]?.station.id).toBe('occupied-close');
   });
+
+  it('recalculates reachability by driving mode — same trip needs a stop in Highway but not in City', async () => {
+    const origin: MapCoordinates = { latitude: 0, longitude: 0 };
+    // 260km — within City's effective range (455 × 1.1 = 500.5, safe range 300.3 at 80%→20%) but
+    // beyond Highway's (455 × 0.8 = 364, safe range 218.4 at the same SoC/reserve).
+    const destination: MapCoordinates = { latitude: 260 / 111, longitude: 0 };
+    const midStation = makeStation({ id: 'mid-dc', latitude: 150 / 111, longitude: 0, type: 'DC' });
+
+    const planCity = await TripPlannerService.planSmartTrip({
+      origin,
+      destination,
+      vehicle,
+      currentSoC: 80,
+      targetReserveSoC: 20,
+      airConActive: false,
+      drivingMode: 'CITY',
+      fetchRoute: makeFetchRoute(),
+      fetchStations: async (center) => {
+        midStation.distanceKm = straightDistanceKm(center, midStation);
+        return [midStation];
+      },
+    });
+    const planHighway = await TripPlannerService.planSmartTrip({
+      origin,
+      destination,
+      vehicle,
+      currentSoC: 80,
+      targetReserveSoC: 20,
+      airConActive: false,
+      drivingMode: 'HIGHWAY',
+      fetchRoute: makeFetchRoute(),
+      fetchStations: async (center) => {
+        midStation.distanceKm = straightDistanceKm(center, midStation);
+        return [midStation];
+      },
+    });
+
+    expect(planCity.reachable).toBe(true);
+    expect(planCity.directRoute).toBe(true);
+    expect(planCity.stops).toHaveLength(0);
+
+    expect(planHighway.reachable).toBe(true);
+    expect(planHighway.directRoute).toBe(false);
+    expect(planHighway.stops).toHaveLength(1);
+    expect(planHighway.stops[0].station.id).toBe('mid-dc');
+  });
 });
 
 describe('TripPlannerService.planSmartTrip alternative routes', () => {
   it('finds an alternative route via a different first charging station when a genuinely different option exists', async () => {
     const origin: MapCoordinates = { latitude: 0, longitude: 0 };
-    const destination: MapCoordinates = { latitude: 300 / 111, longitude: 0 };
+    const destination: MapCoordinates = { latitude: 400 / 111, longitude: 0 };
     // Directly on the path — the better-scored (primary) choice.
     const stationA = makeStation({ id: 'station-a', name: 'Station A', latitude: 150 / 111, longitude: 0, type: 'DC', powerKW: 150 });
     // Slightly off-path and a bit further from the destination — the worse-scored, but still
@@ -425,7 +471,7 @@ describe('TripPlannerService.planSmartTrip alternative routes', () => {
 
   it('does not attach an alternative when no other viable station exists', async () => {
     const origin: MapCoordinates = { latitude: 0, longitude: 0 };
-    const destination: MapCoordinates = { latitude: 300 / 111, longitude: 0 };
+    const destination: MapCoordinates = { latitude: 400 / 111, longitude: 0 };
     const onlyStation = makeStation({ id: 'only-station', latitude: 150 / 111, longitude: 0, type: 'DC', powerKW: 150 });
 
     const plan = await TripPlannerService.planSmartTrip({
@@ -449,7 +495,7 @@ describe('TripPlannerService.planSmartTrip alternative routes', () => {
 
   it('biases the alternative toward an available station when the primary pick is occupied, even if a closer occupied option exists', async () => {
     const origin: MapCoordinates = { latitude: 0, longitude: 0 };
-    const destination: MapCoordinates = { latitude: 300 / 111, longitude: 0 };
+    const destination: MapCoordinates = { latitude: 400 / 111, longitude: 0 };
     // Closest to the destination — wins the primary pick regardless of status (unchanged
     // behavior) — but it's occupied.
     const closestOccupied = makeStation({
@@ -501,7 +547,7 @@ describe('TripPlannerService.planSmartTrip alternative routes', () => {
 
   it('does not bias the alternative toward availability when the primary pick is already available', async () => {
     const origin: MapCoordinates = { latitude: 0, longitude: 0 };
-    const destination: MapCoordinates = { latitude: 300 / 111, longitude: 0 };
+    const destination: MapCoordinates = { latitude: 400 / 111, longitude: 0 };
     const closestAvailable = makeStation({
       id: 'closest-available',
       latitude: 270 / 111,
@@ -541,14 +587,17 @@ describe('TripPlannerService.planSmartTrip alternative routes', () => {
     });
 
     expect(plan.stops[0].station.id).toBe('closest-available');
-    // Primary was already available, so the alternative just picks the next-closest by
-    // distance — regardless of its status — same as general alternative behavior.
-    expect(plan.alternative!.stops[0]?.station.id).toBe('second-occupied');
+    // Primary was already available, so no availability bias applies — but the alternative is
+    // still scored by nearest-to-current-position (not nearest-to-destination), and
+    // farther-available (lat 200/111) is physically closer to the origin than second-occupied
+    // (lat 260/111) even though it's farther from the destination. Its OCCUPIED status doesn't
+    // matter here since biasTowardAvailability is off for this case.
+    expect(plan.alternative!.stops[0]?.station.id).toBe('farther-available');
   });
 
   it('prefers a farther DC charger over a closer AC one for the alternative, same as the primary pick', async () => {
     const origin: MapCoordinates = { latitude: 0, longitude: 0 };
-    const destination: MapCoordinates = { latitude: 300 / 111, longitude: 0 };
+    const destination: MapCoordinates = { latitude: 400 / 111, longitude: 0 };
     // Wins the primary pick — closest DC on the path.
     const primaryDC = makeStation({ id: 'primary-dc', latitude: 270 / 111, longitude: 0, type: 'DC' });
     // Closer to the destination than the other remaining DC option, but AC — should lose the
@@ -578,9 +627,43 @@ describe('TripPlannerService.planSmartTrip alternative routes', () => {
     expect(plan.alternative!.stops[0]?.station.id).toBe('farther-dc');
   });
 
+  it('excludes a backtracking station from the alternative even when it is the nearest one overall', async () => {
+    const origin: MapCoordinates = { latitude: 0, longitude: 0 };
+    const destination: MapCoordinates = { latitude: 400 / 111, longitude: 0 };
+    // Wins the primary pick — closest to the destination.
+    const primaryDC = makeStation({ id: 'primary-dc', latitude: 270 / 111, longitude: 0, type: 'DC' });
+    // Physically the *nearest* station to the origin once primary-dc is excluded, but behind the
+    // origin relative to the destination — reaching it, then continuing, means backtracking.
+    // Must be excluded from the alternative outright, not just scored worse.
+    const behindOrigin = makeStation({ id: 'behind-origin', latitude: -10 / 111, longitude: 0, type: 'DC' });
+    // Farther from the origin than behind-origin, but still makes forward progress toward the
+    // destination — should win the alternative once backtracking is excluded.
+    const forwardOption = makeStation({ id: 'forward-option', latitude: 200 / 111, longitude: 0, type: 'DC' });
+
+    const plan = await TripPlannerService.planSmartTrip({
+      origin,
+      destination,
+      vehicle,
+      currentSoC: 90,
+      targetReserveSoC: 15,
+      airConActive: false,
+      fetchRoute: makeFetchRoute(),
+      fetchStations: async (center) => {
+        primaryDC.distanceKm = straightDistanceKm(center, primaryDC);
+        behindOrigin.distanceKm = straightDistanceKm(center, behindOrigin);
+        forwardOption.distanceKm = straightDistanceKm(center, forwardOption);
+        return [primaryDC, behindOrigin, forwardOption];
+      },
+    });
+
+    expect(plan.stops[0].station.id).toBe('primary-dc');
+    expect(plan.alternative).toBeDefined();
+    expect(plan.alternative!.stops[0]?.station.id).toBe('forward-option');
+  });
+
   it('falls back to AC for the alternative only when no other DC charger is reachable', async () => {
     const origin: MapCoordinates = { latitude: 0, longitude: 0 };
-    const destination: MapCoordinates = { latitude: 300 / 111, longitude: 0 };
+    const destination: MapCoordinates = { latitude: 400 / 111, longitude: 0 };
     const primaryDC = makeStation({ id: 'primary-dc', latitude: 270 / 111, longitude: 0, type: 'DC' });
     // The only other reachable charger once primary-dc is excluded — AC, but should still be
     // picked since there's no DC alternative.

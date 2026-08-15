@@ -1,4 +1,6 @@
 import { MapCoordinates } from '../types/ev';
+import { Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ChargingStation, getDistanceKm } from './StationGenerator';
 
 // Register for a free key at https://openchargemap.org
@@ -6,6 +8,74 @@ import { ChargingStation, getDistanceKm } from './StationGenerator';
 export const OPEN_CHARGE_MAP_API_KEY = process.env.EXPO_PUBLIC_OCM_API_KEY || '';
 
 const DEFAULT_FETCH_TIMEOUT_MS = 4000;
+
+/**
+ * Loads persistent offline cached stations from AsyncStorage.
+ */
+export async function loadOfflineStations(): Promise<ChargingStation[]> {
+  try {
+    const cached = await AsyncStorage.getItem('OFFLINE_STATIONS_CACHE');
+    if (cached) {
+      return JSON.parse(cached);
+    }
+  } catch (e) {
+    console.warn('[StationService] Failed to load offline stations:', e);
+  }
+  return [];
+}
+
+/**
+ * Saves and merges new stations into the persistent offline cache in AsyncStorage.
+ */
+export async function saveOfflineStations(newStations: ChargingStation[]): Promise<void> {
+  if (newStations.length === 0) return;
+  try {
+    const existing = await loadOfflineStations();
+    const mergedMap = new Map<string, ChargingStation>();
+    for (const s of existing) {
+      mergedMap.set(s.id, s);
+    }
+    for (const s of newStations) {
+      mergedMap.set(s.id, s);
+    }
+    const merged = Array.from(mergedMap.values());
+    await AsyncStorage.setItem('OFFLINE_STATIONS_CACHE', JSON.stringify(merged));
+  } catch (e) {
+    console.warn('[StationService] Failed to save offline stations:', e);
+  }
+}
+
+/**
+ * Loads the list of centers that have already been queried from OCM/Google/OSM.
+ */
+export async function loadOfflineQueriedRegions(): Promise<MapCoordinates[]> {
+  try {
+    const cached = await AsyncStorage.getItem('OFFLINE_QUERIED_REGIONS_CACHE');
+    if (cached) {
+      return JSON.parse(cached);
+    }
+  } catch (e) {
+    console.warn('[StationService] Failed to load offline queried regions:', e);
+  }
+  return [];
+}
+
+/**
+ * Saves a new center into the list of queried regions.
+ */
+export async function saveOfflineQueriedRegion(center: MapCoordinates): Promise<void> {
+  try {
+    const existing = await loadOfflineQueriedRegions();
+    // Prevent adding very close duplicates (within 5km)
+    const isDuplicate = existing.some((c) => getDistanceKm(c, center) < 5);
+    if (!isDuplicate) {
+      existing.push(center);
+      await AsyncStorage.setItem('OFFLINE_QUERIED_REGIONS_CACHE', JSON.stringify(existing));
+    }
+  } catch (e) {
+    console.warn('[StationService] Failed to save offline queried region:', e);
+  }
+}
 
 /**
  * `fetch` with a hard timeout. Plain `fetch()` has no timeout of its own — on a slow, flaky, or
@@ -160,9 +230,15 @@ export async function getOverpassStations(
     `out center;`;
 
   try {
-    // Overpass itself is asked for a server-side timeout; this client-side backstop is set
-    // to 4 seconds to avoid blocking the app interface on slow public instances.
-    const response = await fetchWithTimeout(`${OVERPASS_ENDPOINT}?data=${encodeURIComponent(query)}`, {}, 4000);
+    const response = await fetchWithTimeout(
+      `${OVERPASS_ENDPOINT}?data=${encodeURIComponent(query)}`,
+      {
+        headers: {
+          'User-Agent': 'EVRangeRadiusApp/1.0.0 (https://github.com/tsnuttakorn/ev-range-radius-app)',
+        },
+      },
+      4000
+    );
     if (!response.ok) {
       throw new Error(`Overpass HTTP error: ${response.status}`);
     }
@@ -216,6 +292,139 @@ export async function getOverpassStations(
     return [];
   }
 }
+
+let sessionGoogleApiCallCount = 0;
+const MAX_SESSION_GOOGLE_CALLS = 80; // Safeguard limit to protect user's billing
+
+// Billing Emergency Lock parameters to catch rapid rendering loops
+let requestCountInLastWindow = 0;
+let windowStartTime = 0;
+const RATE_LIMIT_WINDOW_MS = 5000; // 5 seconds
+const MAX_REQUESTS_IN_WINDOW = 15;  // Max 15 requests in 5 seconds to accommodate multi-stop trip planning
+let isEmergencyLocked = false;
+
+/**
+ * Fetches EV charging stations from the Google Places API (Nearby Search) using
+ * the user-provided Google Maps API key.
+ */
+export async function getGooglePlacesStations(
+  center: MapCoordinates,
+  maxRadiusKm: number
+): Promise<ChargingStation[]> {
+  const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+  if (!apiKey || apiKey === 'YOUR_GOOGLE_MAPS_API_KEY_HERE') {
+    return [];
+  }
+
+  // Load offline stations and queried regions to see if we already have this region cached
+  const offline = await loadOfflineStations();
+  const localOfflineDC = offline
+    .filter((s) => s.type === 'DC' && getDistanceKm(center, s) <= maxRadiusKm)
+    .map((s) => ({ ...s, distanceKm: getDistanceKm(center, s) }));
+
+  const queriedRegions = await loadOfflineQueriedRegions();
+  const isRegionCached = queriedRegions.some((r) => getDistanceKm(r, center) < 20);
+
+  if (isRegionCached) {
+    console.log('[Offline Cache] Google Places region cached. Returning offline DC stations:', localOfflineDC.length);
+    return localOfflineDC;
+  }
+
+  const now = Date.now();
+
+  if (isEmergencyLocked) {
+    console.warn('[Google Places] API is emergency locked to protect billing.');
+    return [];
+  }
+
+  // Rate limiting check
+  if (now - windowStartTime > RATE_LIMIT_WINDOW_MS) {
+    windowStartTime = now;
+    requestCountInLastWindow = 0;
+  }
+
+  requestCountInLastWindow++;
+
+  if (requestCountInLastWindow > MAX_REQUESTS_IN_WINDOW) {
+    isEmergencyLocked = true;
+    console.error('[Google Places] EMERGENCY LOCK TRIGGERED: Too many API requests in a short time. Blocking Places API.');
+    Alert.alert(
+      'Billing Emergency Lock',
+      'The app detected unusually high API activity (potential rendering loop) and has locked Google Places API to protect your billing. Free stations are still active.',
+      [{ text: 'OK' }]
+    );
+    return [];
+  }
+
+  if (sessionGoogleApiCallCount >= MAX_SESSION_GOOGLE_CALLS) {
+    console.warn(`[Google Places] Safeguard triggered: Limit of ${MAX_SESSION_GOOGLE_CALLS} requests reached. Skipping Places query.`);
+    if (sessionGoogleApiCallCount === MAX_SESSION_GOOGLE_CALLS) {
+      Alert.alert(
+        'Billing Safeguard Active',
+        'Google Places API calls have been paused for this session to prevent unexpected charges. Free stations are still active.',
+        [{ text: 'OK' }]
+      );
+      sessionGoogleApiCallCount++; // Increment to only alert once
+    }
+    return [];
+  }
+
+  sessionGoogleApiCallCount++;
+
+  const radiusMeters = Math.min(Math.round(maxRadiusKm * 1000), 50000); // Google Places maximum radius is 50,000 meters
+  const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${center.latitude},${center.longitude}&radius=${radiusMeters}&type=charging_station&key=${apiKey}`;
+
+  try {
+    const response = await fetchWithTimeout(url, {}, 5000);
+    if (!response.ok) {
+      throw new Error(`Google Places HTTP error: ${response.status}`);
+    }
+    const data = await response.json();
+    if (data.status === 'OVER_QUERY_LIMIT' || data.status === 'REQUEST_DENIED') {
+      console.warn('[Google Places] API status:', data.status, 'Message:', data.error_message);
+      Alert.alert(
+        'Google API Notice',
+        `Google API status: ${data.status}. App will fall back to free offline/free charging databases.`,
+        [{ text: 'OK' }]
+      );
+      return [];
+    }
+    if (data.status && data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+      console.warn('[Google Places] API returned status:', data.status, 'Error message:', data.error_message);
+    }
+    const results = Array.isArray(data.results) ? data.results : [];
+    console.log(`[Google Places] Fetched ${results.length} DC stations near`, center);
+
+    const stations = results.map((place: any): ChargingStation => {
+      const lat = place.geometry?.location?.lat;
+      const lng = place.geometry?.location?.lng;
+      const distanceKm = getDistanceKm(center, { latitude: lat, longitude: lng });
+
+      return {
+        id: `google-${place.place_id}`,
+        name: place.name || 'EV Charging Station (Google)',
+        latitude: lat,
+        longitude: lng,
+        type: 'DC', // Explicitly DC as requested
+        powerKW: 120, // Default to a standard DC fast charging power in kW
+        status: 'AVAILABLE' as const,
+        distanceKm,
+        operator: place.vicinity || 'Google Places',
+      };
+    });
+
+    if (stations.length > 0) {
+      await saveOfflineStations(stations);
+      await saveOfflineQueriedRegion(center);
+    }
+
+    return stations;
+  } catch (error) {
+    console.warn('[Google Places] Failed to fetch EV stations:', error);
+    return [];
+  }
+}
+
 
 const SAME_LOCATION_KM = 0.05; // ~50m — treat as the same physical charger
 // Grid cell sized to roughly match the dedupe threshold (~55m of latitude at the equator), so
@@ -286,11 +495,35 @@ export async function getAllRealStations(
   fallbackStations: ChargingStation[],
   maxResults: number = 40
 ): Promise<ChargingStation[]> {
-  const [ocmStations, osmStations] = await Promise.all([
+  const offline = await loadOfflineStations();
+  const localOffline = offline
+    .filter((s) => getDistanceKm(center, s) <= maxRadiusKm)
+    .map((s) => ({ ...s, distanceKm: getDistanceKm(center, s) }));
+
+  const queriedRegions = await loadOfflineQueriedRegions();
+  const isRegionCached = queriedRegions.some((r) => getDistanceKm(r, center) < 20);
+
+  if (isRegionCached && localOffline.length > 0) {
+    console.log('[Offline Cache] Region already queried. Serving from local storage:', localOffline.length);
+    return localOffline.sort((a, b) => a.distanceKm - b.distanceKm).slice(0, maxResults);
+  }
+
+  const [ocmStations, osmStations, googleStations] = await Promise.all([
     getRealStations(center, maxRadiusKm, [], maxResults),
     getOverpassStations(center, maxRadiusKm),
+    getGooglePlacesStations(center, maxRadiusKm),
   ]);
 
-  const merged = mergeStationSources(ocmStations, osmStations, maxResults);
-  return merged.length > 0 ? merged : fallbackStations;
+  let merged = mergeStationSources(ocmStations, osmStations, maxResults);
+  merged = mergeStationSources(merged, googleStations, maxResults);
+  
+  const finalStations = merged.length > 0 ? merged : fallbackStations;
+
+  if (merged.length > 0) {
+    await saveOfflineStations(merged);
+    await saveOfflineQueriedRegion(center);
+  }
+
+  const combined = mergeStationSources(localOffline, finalStations, maxResults);
+  return combined;
 }

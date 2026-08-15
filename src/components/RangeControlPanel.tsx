@@ -1,14 +1,21 @@
 import React, { useState } from 'react';
 import { StyleSheet, View, Text, Switch, TouchableOpacity } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
-import SliderImport from '@react-native-community/slider';
+import { CustomSlider as Slider } from './CustomSlider';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useShallow } from 'zustand/react/shallow';
 import { useEVStore } from '../store/useEVStore';
 import { getTheme, radius, spacing } from '../theme/tokens';
 import { useResolvedThemeMode } from '../theme/useResolvedThemeMode';
 import { formatMinutes } from '../utils/formatMinutes';
 import { PRESET_VEHICLES } from '../constants/presetVehicles';
+import { DrivingMode } from '../types/ev';
 
-const Slider = SliderImport as any;
+const DRIVING_MODES: { mode: DrivingMode; label: string; icon: React.ComponentProps<typeof FontAwesome>['name'] }[] = [
+  { mode: 'CITY', label: 'City', icon: 'building-o' },
+  { mode: 'MIXED', label: 'Mixed', icon: 'road' },
+  { mode: 'HIGHWAY', label: 'Highway', icon: 'tachometer' },
+];
 
 export interface IRangeControlPanelProps {
   onMaximize?: () => void;
@@ -17,19 +24,41 @@ export interface IRangeControlPanelProps {
 }
 
 export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximize, isWide = false, isPlanning = false }) => {
+  // Selected via `useShallow` rather than a bare `useEVStore()` — a bare call subscribes to the
+  // *entire* store, so every field this panel doesn't even read (recentSearches, userLocation
+  // ticking during live GPS tracking, ...) would still force a re-render here on every change,
+  // including every intermediate tick while dragging one of these very sliders.
   const {
     activeVehicle,
     currentSoC,
     targetReserveSoC,
     preferredMaxChargeSoC,
     isAirConActive,
+    drivingMode,
     setCurrentSoC,
     setTargetReserveSoC,
     setPreferredMaxChargeSoC,
     toggleAirCon,
+    setDrivingMode,
     getCalculationResult,
-  } = useEVStore();
+  } = useEVStore(
+    useShallow((state) => ({
+      activeVehicle: state.activeVehicle,
+      currentSoC: state.currentSoC,
+      targetReserveSoC: state.targetReserveSoC,
+      preferredMaxChargeSoC: state.preferredMaxChargeSoC,
+      isAirConActive: state.isAirConActive,
+      drivingMode: state.drivingMode,
+      setCurrentSoC: state.setCurrentSoC,
+      setTargetReserveSoC: state.setTargetReserveSoC,
+      setPreferredMaxChargeSoC: state.setPreferredMaxChargeSoC,
+      toggleAirCon: state.toggleAirCon,
+      setDrivingMode: state.setDrivingMode,
+      getCalculationResult: state.getCalculationResult,
+    }))
+  );
   const themeMode = useResolvedThemeMode();
+  const insets = useSafeAreaInsets();
 
   const {
     safeRangeKm,
@@ -39,6 +68,22 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
     estimatedChargeTimeMinutes,
     estimatedTotalTravelTimeMinutes,
   } = getCalculationResult();
+
+  const [localSoC, setLocalSoC] = useState(currentSoC);
+  const [localReserve, setLocalReserve] = useState(targetReserveSoC);
+  const [localLimit, setLocalLimit] = useState(preferredMaxChargeSoC);
+
+  React.useEffect(() => {
+    setLocalSoC(currentSoC);
+  }, [currentSoC]);
+
+  React.useEffect(() => {
+    setLocalReserve(targetReserveSoC);
+  }, [targetReserveSoC]);
+
+  React.useEffect(() => {
+    setLocalLimit(preferredMaxChargeSoC);
+  }, [preferredMaxChargeSoC]);
 
   const presetInfo = PRESET_VEHICLES.find((pv) => pv.id === activeVehicle.id);
   const maxDc = activeVehicle.maxDcChargeKW ?? presetInfo?.maxDcChargeKW ?? 50;
@@ -72,7 +117,17 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
 
   return (
     <View
-      style={[styles.container, { backgroundColor: t.bg, borderColor: t.border }]}
+      style={[
+        styles.container,
+        !isWide && styles.absoluteBottom,
+        !isWide && { marginBottom: Math.max(spacing.md, insets.bottom) },
+        { backgroundColor: t.bg, borderColor: t.border }
+      ]}
+      // The map behind this panel is a native react-native-maps MapView, which on Android
+      // renders via a SurfaceView that intercepts touches ahead of JS siblings regardless of
+      // z-order/zIndex. Forcing this overlay onto its own hardware layer restores correct
+      // touch routing so the sliders receive gestures instead of the map underneath them.
+      renderToHardwareTextureAndroid
     >
       <TouchableOpacity
         activeOpacity={0.9}
@@ -157,6 +212,39 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
           above always visible in place. */}
       {!minimized && (
       <View style={styles.controlSection}>
+        {/* Driving Mode — feeds directly into the range formula (RangeCalculator.DrivingMode):
+            city driving beats the official rating (regen braking, low speeds), highway driving
+            falls short of it (sustained aero drag), mixed matches it. Placed above the sliders
+            since it changes what "100%" of range even means, before the SoC-based figures below. */}
+        <View style={styles.sliderContainer}>
+          <View style={[styles.sliderHeader, styles.modeHeader]}>
+            <View style={styles.sliderLabelRow}>
+              <View style={[styles.iconChip, { backgroundColor: t.brandDim }]}>
+                <FontAwesome name="map-signs" size={12} color={t.brand} />
+              </View>
+              <Text style={[styles.sliderLabel, { color: t.textPrimary }]}>Driving Mode</Text>
+            </View>
+          </View>
+          <View style={[styles.modeRow, { backgroundColor: t.surfaceRaised, borderColor: t.borderSubtle }]}>
+            {DRIVING_MODES.map(({ mode, label, icon }) => {
+              const active = drivingMode === mode;
+              return (
+                <TouchableOpacity
+                  key={mode}
+                  activeOpacity={0.8}
+                  onPress={() => setDrivingMode(mode)}
+                  style={[styles.modeSegment, active && { backgroundColor: t.brandDim }]}
+                >
+                  <FontAwesome name={icon} size={12} color={active ? t.brand : t.textTertiary} />
+                  <Text style={[styles.modeSegmentText, { color: active ? t.brand : t.textTertiary }]}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
         {/* Current SoC Slider */}
         <View style={styles.sliderContainer}>
           <View style={styles.sliderHeader}>
@@ -166,19 +254,22 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
               </View>
               <Text style={[styles.sliderLabel, { color: t.textPrimary }]}>Battery SoC</Text>
             </View>
-            <Text style={[styles.badge, { backgroundColor: t.brandDim, color: t.brand }]}>{currentSoC}%</Text>
+            <Text style={[styles.badge, { backgroundColor: t.brandDim, color: t.brand }]}>{localSoC}%</Text>
           </View>
-          <Slider
-            style={styles.slider}
-            minimumValue={0}
-            maximumValue={100}
-            step={1}
-            value={currentSoC}
-            onValueChange={setCurrentSoC}
-            minimumTrackTintColor={t.brand}
-            maximumTrackTintColor={t.surfaceRaised}
-            thumbTintColor={t.brand}
-          />
+          <View style={styles.sliderTrackWrapper}>
+            <Slider
+              style={styles.slider}
+              minimumValue={0}
+              maximumValue={100}
+              step={1}
+              value={localSoC}
+              onValueChange={setLocalSoC}
+              onSlidingComplete={setCurrentSoC}
+              minimumTrackTintColor={t.brand}
+              maximumTrackTintColor={t.surfaceRaised}
+              thumbTintColor={t.brand}
+            />
+          </View>
         </View>
 
         {/* Target Reserve SoC Slider */}
@@ -190,19 +281,22 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
               </View>
               <Text style={[styles.sliderLabel, { color: t.textPrimary }]}>Reserve Buffer</Text>
             </View>
-            <Text style={[styles.badge, { backgroundColor: t.reserveDim, color: t.reserve }]}>{targetReserveSoC}%</Text>
+            <Text style={[styles.badge, { backgroundColor: t.reserveDim, color: t.reserve }]}>{localReserve}%</Text>
           </View>
-          <Slider
-            style={styles.slider}
-            minimumValue={0}
-            maximumValue={50}
-            step={1}
-            value={targetReserveSoC}
-            onValueChange={setTargetReserveSoC}
-            minimumTrackTintColor={t.reserve}
-            maximumTrackTintColor={t.surfaceRaised}
-            thumbTintColor={t.reserve}
-          />
+          <View style={styles.sliderTrackWrapper}>
+            <Slider
+              style={styles.slider}
+              minimumValue={0}
+              maximumValue={50}
+              step={1}
+              value={localReserve}
+              onValueChange={setLocalReserve}
+              onSlidingComplete={setTargetReserveSoC}
+              minimumTrackTintColor={t.reserve}
+              maximumTrackTintColor={t.surfaceRaised}
+              thumbTintColor={t.reserve}
+            />
+          </View>
         </View>
 
         {/* Preferred Charge Limit Slider — used by the trip planner at charging stops */}
@@ -214,19 +308,22 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
               </View>
               <Text style={[styles.sliderLabel, { color: t.textPrimary }]}>Charge Limit</Text>
             </View>
-            <Text style={[styles.badge, { backgroundColor: t.successDim, color: t.success }]}>{preferredMaxChargeSoC}%</Text>
+            <Text style={[styles.badge, { backgroundColor: t.successDim, color: t.success }]}>{localLimit}%</Text>
           </View>
-          <Slider
-            style={styles.slider}
-            minimumValue={50}
-            maximumValue={100}
-            step={5}
-            value={preferredMaxChargeSoC}
-            onValueChange={setPreferredMaxChargeSoC}
-            minimumTrackTintColor={t.success}
-            maximumTrackTintColor={t.surfaceRaised}
-            thumbTintColor={t.success}
-          />
+          <View style={styles.sliderTrackWrapper}>
+            <Slider
+              style={styles.slider}
+              minimumValue={50}
+              maximumValue={100}
+              step={5}
+              value={localLimit}
+              onValueChange={setLocalLimit}
+              onSlidingComplete={setPreferredMaxChargeSoC}
+              minimumTrackTintColor={t.success}
+              maximumTrackTintColor={t.surfaceRaised}
+              thumbTintColor={t.success}
+            />
+          </View>
         </View>
 
         {/* Air Conditioning Toggle */}
@@ -260,6 +357,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.28,
     shadowRadius: 20,
     elevation: 10,
+  },
+  absoluteBottom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 99,
   },
   summaryCard: {
     borderRadius: radius.card,
@@ -350,7 +454,10 @@ const styles = StyleSheet.create({
   },
   controlSection: {
     marginTop: 14,
-    paddingHorizontal: 4,
+    // No horizontal padding here, deliberately — this sits directly on the container's own
+    // `padding: 14` (see `container` above), same as `summaryCard` does, so slider/toggle content
+    // lines up with the vehicle pill and SAFE RANGE card edges above it rather than being inset
+    // a few extra px further in.
   },
   sliderContainer: {
     marginBottom: 10,
@@ -389,6 +496,43 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 30,
   },
+  sliderTrackWrapper: {
+    // Padding lives here, outside CustomSlider itself, deliberately — not on `slider` above.
+    // CustomSlider's own PanResponder measures touch position as locationX / its own layout
+    // width (from onLayout on its root view, i.e. including any of its own padding); padding it
+    // internally would leave the visual track narrower than that divisor, throwing off tap/drag
+    // accuracy right at the edges. Padding this wrapper instead just gives the thumb (its battery
+    // icon extends a few px past the 0%/100% ends) clearance from the card edge, with no effect
+    // on CustomSlider's internal touch math.
+    paddingHorizontal: 5,
+  },
+  modeHeader: {
+    // Driving Mode has no badge on the right (unlike the SoC sliders), so its label row reads
+    // more like a section heading than a value readout — a bit more air before the segmented
+    // control below it than the standard 4px sliderHeader gap reads better here.
+    marginBottom: 10,
+  },
+  modeRow: {
+    flexDirection: 'row',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: 3,
+    gap: 3,
+  },
+  modeSegment: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 7,
+    paddingHorizontal: 6,
+    borderRadius: radius.sm,
+  },
+  modeSegmentText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -400,11 +544,6 @@ const styles = StyleSheet.create({
   toggleLabel: {
     fontSize: 13,
     fontWeight: '600',
-  },
-  fallbackBadge: {
-    fontSize: 10,
-    fontWeight: '700',
-    opacity: 0.75,
   },
   chargeSpeedRow: {
     flexDirection: 'row',

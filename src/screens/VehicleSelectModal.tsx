@@ -11,6 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
+import { useShallow } from 'zustand/react/shallow';
 import { useEVStore } from '../store/useEVStore';
 import { UserEVProfile, RatingStandard } from '../types/ev';
 import { getTheme, radius } from '../theme/tokens';
@@ -23,7 +24,16 @@ interface VehicleSelectModalProps {
 
 export const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ onClose }) => {
   const { savedVehicles, activeVehicle, setActiveVehicle, addCustomVehicle, updateVehicle, deleteVehicle } =
-    useEVStore();
+    useEVStore(
+      useShallow((state) => ({
+        savedVehicles: state.savedVehicles,
+        activeVehicle: state.activeVehicle,
+        setActiveVehicle: state.setActiveVehicle,
+        addCustomVehicle: state.addCustomVehicle,
+        updateVehicle: state.updateVehicle,
+        deleteVehicle: state.deleteVehicle,
+      }))
+    );
   const themeMode = useResolvedThemeMode();
   const t = getTheme(themeMode);
   const scrollRef = useRef<ScrollView>(null);

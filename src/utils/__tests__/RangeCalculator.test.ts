@@ -29,24 +29,24 @@ describe('RangeCalculator', () => {
       vehicle: mockTeslaProfile,
       currentSoC: 80,
       targetReserveSoC: 10,
-      avgSpeedKmH: 90,
+      drivingMode: 'MIXED',
       airConActive: false,
     };
 
     const result = RangeCalculator.calculate(input);
 
-    // Total Range = 455 * 0.83 * 1.0 = 377.65 km
-    // Max Range (80%) = 377.65 * 0.8 = 302.12 -> 302.1
-    // Max Buffer Range (100% - 10% reserve = 90%) = 377.65 * 0.9 = 339.885 -> 339.9
+    // Total Range = 455 * 1.0 = 455 km
+    // Max Range (80%) = 455 * 0.8 = 364
+    // Max Buffer Range (100% - 10% reserve = 90%) = 455 * 0.9 = 409.5
     // Net Usable SoC = 80 - 10 = 70%
-    // Safe Range = 377.65 * 0.7 = 264.355 -> 264.4
+    // Safe Range = 455 * 0.7 = 318.5
     // Usable kWh = 60 * 0.7 = 42
-    // Efficiency = 60 / 377.65 = 0.1588... -> 0.159
-    expect(result.safeRangeKm).toBe(264.4);
-    expect(result.maxRangeKm).toBe(302.1);
-    expect(result.maxBufferRangeKm).toBe(339.9);
+    // Efficiency = 60 / 455 = 0.1318... -> 0.132
+    expect(result.safeRangeKm).toBe(318.5);
+    expect(result.maxRangeKm).toBe(364);
+    expect(result.maxBufferRangeKm).toBe(409.5);
     expect(result.usableBatteryKWh).toBe(42.0);
-    expect(result.estimatedEfficiencyKWhPerKm).toBe(0.159);
+    expect(result.estimatedEfficiencyKWhPerKm).toBe(0.132);
   });
 
   test('applies air conditioning penalty correctly', () => {
@@ -54,21 +54,21 @@ describe('RangeCalculator', () => {
       vehicle: mockTeslaProfile,
       currentSoC: 80,
       targetReserveSoC: 10,
-      avgSpeedKmH: 90,
+      drivingMode: 'MIXED',
       airConActive: true,
     };
 
     const result = RangeCalculator.calculate(input);
 
-    // Total Range = 455 * 0.83 * 0.93 = 351.2145 km
-    // Max Range (80%) = 351.2145 * 0.8 = 280.97 -> 281.0
-    // Safe Range (70%) = 351.2145 * 0.7 = 245.85 -> 245.9
+    // Total Range = 455 * 1.0 * 0.95 = 432.25 km
+    // Max Range (80%) = 432.25 * 0.8 = 345.8
+    // Safe Range (70%) = 432.25 * 0.7 = 302.575 -> 302.6
     // Usable kWh = 60 * 0.7 = 42
-    // Efficiency = 60 / 351.2145 = 0.1708... -> 0.171
-    expect(result.safeRangeKm).toBe(245.9);
-    expect(result.maxRangeKm).toBe(281.0);
+    // Efficiency = 60 / 432.25 = 0.1388... -> 0.139
+    expect(result.safeRangeKm).toBe(302.6);
+    expect(result.maxRangeKm).toBe(345.8);
     expect(result.usableBatteryKWh).toBe(42.0);
-    expect(result.estimatedEfficiencyKWhPerKm).toBe(0.171);
+    expect(result.estimatedEfficiencyKWhPerKm).toBe(0.139);
   });
 
   test('applies custom efficiency factors correctly', () => {
@@ -81,15 +81,15 @@ describe('RangeCalculator', () => {
       vehicle: customProfile,
       currentSoC: 100,
       targetReserveSoC: 0,
-      avgSpeedKmH: 100,
+      drivingMode: 'MIXED',
       airConActive: false,
     };
 
     const result = RangeCalculator.calculate(input);
 
-    // Total Range = 455 * (0.83 * 0.9) * 1.0 = 339.885 km
-    // Safe Range (100% - 0% = 100%) = 339.9
-    expect(result.safeRangeKm).toBe(339.9);
+    // Total Range = 455 * (1.0 * 0.9) * 1.0 = 409.5 km
+    // Safe Range (100% - 0% = 100%) = 409.5
+    expect(result.safeRangeKm).toBe(409.5);
   });
 
   test('handles edge case where current SoC is less than target reserve SoC', () => {
@@ -97,7 +97,7 @@ describe('RangeCalculator', () => {
       vehicle: mockBydProfile,
       currentSoC: 15,
       targetReserveSoC: 20,
-      avgSpeedKmH: 80,
+      drivingMode: 'MIXED',
       airConActive: false,
     };
 
@@ -114,7 +114,7 @@ describe('RangeCalculator', () => {
       vehicle: mockBydProfile,
       currentSoC: 0,
       targetReserveSoC: 10,
-      avgSpeedKmH: 80,
+      drivingMode: 'MIXED',
       airConActive: true,
     };
 
@@ -126,29 +126,67 @@ describe('RangeCalculator', () => {
   });
 
   test('maxBufferRangeKm scales with the reserve buffer, independent of current SoC', () => {
-    // Total Range = 455 * 0.83 * 1.0 = 377.65 km
+    // Total Range = 455 * 1.0 * 1.0 = 455 km
     const lowReserve = RangeCalculator.calculate({
       vehicle: mockTeslaProfile,
       currentSoC: 30, // deliberately low/irrelevant to maxBufferRangeKm
       targetReserveSoC: 10,
-      avgSpeedKmH: 90,
+      drivingMode: 'MIXED',
       airConActive: false,
     });
     const highReserve = RangeCalculator.calculate({
       vehicle: mockTeslaProfile,
       currentSoC: 30, // same SoC as above — only the reserve buffer differs
       targetReserveSoC: 30,
-      avgSpeedKmH: 90,
+      drivingMode: 'MIXED',
       airConActive: false,
     });
 
-    // (100% - 10% reserve) * 377.65 = 339.885 -> 339.9
-    expect(lowReserve.maxBufferRangeKm).toBe(339.9);
-    // (100% - 30% reserve) * 377.65 = 264.355 -> 264.4
-    expect(highReserve.maxBufferRangeKm).toBe(264.4);
+    // (100% - 10% reserve) * 455 = 409.5
+    expect(lowReserve.maxBufferRangeKm).toBe(409.5);
+    // (100% - 30% reserve) * 455 = 318.5
+    expect(highReserve.maxBufferRangeKm).toBe(318.5);
     // A larger reserve buffer shrinks maxBufferRangeKm even though currentSoC didn't change —
     // this is the bug being fixed: previously maxRangeKm (shown as "Max Buffer Range" in the UI)
     // never responded to the reserve slider at all.
     expect(highReserve.maxBufferRangeKm).toBeLessThan(lowReserve.maxBufferRangeKm);
+  });
+});
+
+describe('RangeCalculator driving mode', () => {
+  const teslaProfile: UserEVProfile = {
+    id: 'tesla-modely',
+    modelName: 'Model Y RWD',
+    batteryCapacityKWh: 60.0,
+    officialRangeKm: 455,
+    ratingStandard: 'WLTP',
+    customEfficiencyFactor: 1.0,
+    maxDcChargeKW: 170,
+    maxAcChargeKW: 11,
+  };
+
+  const rangeFor = (drivingMode: RangeCalculationInput['drivingMode']) =>
+    RangeCalculator.calculate({
+      vehicle: teslaProfile,
+      currentSoC: 100,
+      targetReserveSoC: 0,
+      drivingMode,
+      airConActive: false,
+    }).safeRangeKm;
+
+  test('city range exceeds the WLTP rating, highway range falls short of it, mixed matches it exactly', () => {
+    // WLTP factor is 1.0 (see RangeCalculator), so MIXED is the unmodified official range.
+    expect(rangeFor('MIXED')).toBe(455);
+    // CITY: 1.1x — regenerative braking / low speeds beat the official rating.
+    expect(rangeFor('CITY')).toBe(500.5);
+    // HIGHWAY: 0.8x — sustained high-speed drag costs more than the official rating assumes.
+    expect(rangeFor('HIGHWAY')).toBe(364);
+    expect(rangeFor('CITY')).toBeGreaterThan(rangeFor('MIXED'));
+    expect(rangeFor('HIGHWAY')).toBeLessThan(rangeFor('MIXED'));
+  });
+
+  test('getAvgSpeedKmH orders city < mixed < highway', () => {
+    expect(RangeCalculator.getAvgSpeedKmH('CITY')).toBeLessThan(RangeCalculator.getAvgSpeedKmH('MIXED'));
+    expect(RangeCalculator.getAvgSpeedKmH('MIXED')).toBeLessThan(RangeCalculator.getAvgSpeedKmH('HIGHWAY'));
   });
 });

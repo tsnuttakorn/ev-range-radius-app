@@ -75,12 +75,78 @@ function scaleRingFromCenter(center: MapCoordinates, ring: MapCoordinates[], sca
 }
 
 /**
- * Fetches real street routing geometry and road distance between two points using the Open Source Routing Machine (OSRM).
+ * Decodes a Google Maps encoded polyline string into an array of MapCoordinates.
+ */
+function decodePolyline(encoded: string): MapCoordinates[] {
+  const points: MapCoordinates[] = [];
+  let index = 0, len = encoded.length;
+  let lat = 0, lng = 0;
+
+  while (index < len) {
+    let b, shift = 0, result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lat += dlat;
+
+    shift = 0;
+    result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lng += dlng;
+
+    points.push({
+      latitude: lat / 1e5,
+      longitude: lng / 1e5
+    });
+  }
+  return points;
+}
+
+/**
+ * Fetches real street routing geometry and road distance between two points using Google Directions (preferred) or OSRM (fallback).
  */
 export async function fetchRealRoute(
   start: MapCoordinates,
   end: MapCoordinates
 ): Promise<RouteData | null> {
+  const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+  
+  if (apiKey && apiKey !== 'YOUR_GOOGLE_MAPS_API_KEY_HERE') {
+    // Google Maps Directions API is highly robust and easily handles long-distance routes (1000km+)
+    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${start.latitude},${start.longitude}&destination=${end.latitude},${end.longitude}&key=${apiKey}`;
+    try {
+      const response = await fetchWithTimeout(url, {}, 4000);
+      if (!response.ok) {
+        throw new Error(`Google Directions HTTP error: ${response.status}`);
+      }
+      const data = await response.json();
+      if (data.status === 'OK' && data.routes && data.routes.length > 0) {
+        const route = data.routes[0];
+        const encodedPolyline = route.overview_polyline?.points;
+        const coords = encodedPolyline ? decodePolyline(encodedPolyline) : [];
+        const distanceKm = route.legs.reduce((sum: number, leg: any) => sum + (leg.distance?.value ?? 0), 0) / 1000;
+        
+        return {
+          coordinates: coords,
+          distanceKm,
+        };
+      } else {
+        console.warn('[RouteService] Google Directions failed with status:', data.status, data.error_message);
+      }
+    } catch (error) {
+      console.warn('[RouteService] Google Directions failed, falling back to OSRM:', error);
+    }
+  }
+
+  // Fallback to OSRM
   const url = `https://router.project-osrm.org/route/v1/driving/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson`;
   
   try {

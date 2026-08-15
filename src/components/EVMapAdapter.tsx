@@ -1,12 +1,13 @@
-import React, { useRef, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { StyleSheet, View, TouchableOpacity, Text, Alert, Linking, Modal, Animated } from 'react-native';
+import React, { useRef, useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
+import { StyleSheet, View, TouchableOpacity, Text, Alert, Linking, Modal, Animated, ActivityIndicator } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import MapView, { Marker, Polygon, Callout, Polyline, PROVIDER_DEFAULT, Region } from 'react-native-maps';
 import * as Location from 'expo-location';
+import { useShallow } from 'zustand/react/shallow';
 import { MapCoordinates } from '../types/ev';
 import { RangeCalculator } from '../utils/RangeCalculator';
 import { generateMockStations, ChargingStation, getDistanceKm, withinRadiusOf } from '../utils/StationGenerator';
-import { getAllRealStations } from '../utils/StationService';
+import { getAllRealStations, getGooglePlacesStations, mergeStationSources } from '../utils/StationService';
 import { useEVStore } from '../store/useEVStore';
 import { fetchRealRoute, fetchIsochronePolygon } from '../utils/RouteService';
 import { getTheme, mapColors, radius, spacing } from '../theme/tokens';
@@ -227,7 +228,20 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
   onLiveTrackingInterrupted,
 }, ref) => {
   const mapRef = useRef<MapView>(null);
-  const { activeVehicle, currentSoC, targetReserveSoC, preferredMaxChargeSoC, isAirConActive } = useEVStore();
+  // `useShallow` keeps this subscribed to only these 6 fields — a bare `useEVStore()` would
+  // re-render this whole map (MapView + all markers/polygons) on *any* store change, including
+  // unrelated ones like a recent-search being saved elsewhere.
+  const { activeVehicle, currentSoC, targetReserveSoC, preferredMaxChargeSoC, isAirConActive, drivingMode } =
+    useEVStore(
+      useShallow((state) => ({
+        activeVehicle: state.activeVehicle,
+        currentSoC: state.currentSoC,
+        targetReserveSoC: state.targetReserveSoC,
+        preferredMaxChargeSoC: state.preferredMaxChargeSoC,
+        isAirConActive: state.isAirConActive,
+        drivingMode: state.drivingMode,
+      }))
+    );
   const themeMode = useResolvedThemeMode();
 
   useImperativeHandle(ref, () => ({
@@ -249,6 +263,16 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
     latitudeDelta: 0.2,
     longitudeDelta: 0.2,
   });
+
+  // Sync map region with center coordinate when center changes (like on initial GPS lock)
+  useEffect(() => {
+    setRegion({
+      latitude: center.latitude,
+      longitude: center.longitude,
+      latitudeDelta: 0.2,
+      longitudeDelta: 0.2,
+    });
+  }, [center.latitude, center.longitude]);
 
   // One-time GPS correction on mount: `center` starts out at whatever the store's userLocation
   // default is (a fixed fallback coordinate, not the device's actual location, and not persisted
@@ -325,33 +349,57 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
   // Falls back to mock stations if both real sources are unavailable — spread within the
   // vehicle's actual range (not the artificial country-wide search radius) so they land
   // somewhere visible near the user instead of off-screen hundreds of km away.
+  const lastQueryCenterRef = useRef<MapCoordinates | null>(null);
+
+  // Fetch the broad station list around the panned map region center, debounced and filtered by distance threshold
   useEffect(() => {
     let cancelled = false;
-    const mockFallbackRadiusKm = Math.max(maxRadiusKm, 20);
-    const mockFallback = generateMockStations(center, mockFallbackRadiusKm);
+    
+    // Only fetch if the map center has moved by at least 25km from the last query center
+    // to avoid redundant API calls for small pans
+    const lastQueryCenter = lastQueryCenterRef.current;
+    const distanceMoved = lastQueryCenter 
+      ? getDistanceKm(lastQueryCenter, { latitude: region.latitude, longitude: region.longitude })
+      : Infinity;
 
-    const loadCountryStations = async () => {
+    if (distanceMoved < 25) {
+      return;
+    }
+
+    const timer = setTimeout(async () => {
       setCountryStationsLoaded(false);
+      lastQueryCenterRef.current = { latitude: region.latitude, longitude: region.longitude };
+      
+      const mockFallbackRadiusKm = Math.max(maxRadiusKm, 20);
+      const queryCenter = { latitude: region.latitude, longitude: region.longitude };
+      const mockFallback = generateMockStations(queryCenter, mockFallbackRadiusKm);
+
       try {
-        const fetched = await getAllRealStations(center, COUNTRY_SEARCH_RADIUS_KM, mockFallback, COUNTRY_MAX_RESULTS);
+        const fetched = await getAllRealStations(queryCenter, COUNTRY_SEARCH_RADIUS_KM, mockFallback, COUNTRY_MAX_RESULTS);
         if (cancelled) return;
-        setCountryStations(fetched);
+        setCountryStations((prev) => mergeStationSources(prev, fetched, COUNTRY_MAX_RESULTS));
       } catch (error) {
-        // Belt-and-suspenders: getAllRealStations already falls back to mock data internally on
-        // fetch failures, but if anything unexpected still throws, never leave the map with no
-        // stations at all and no way to recover until `center` changes again.
-        console.warn('[EVMapAdapter] Station fetch failed unexpectedly, using mock stations:', error);
+        console.warn('[EVMapAdapter] Station fetch failed unexpectedly:', error);
         if (cancelled) return;
-        setCountryStations(mockFallback);
+        setCountryStations((prev) => mergeStationSources(prev, mockFallback, COUNTRY_MAX_RESULTS));
       } finally {
         if (!cancelled) setCountryStationsLoaded(true);
       }
-    };
-    loadCountryStations();
+    }, 600); // 600ms debounce
+
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [center.latitude, center.longitude, maxRadiusKm]);
+  }, [region.latitude, region.longitude, maxRadiusKm]);
+
+  const queriedRegions = useRef<MapCoordinates[]>([]);
+  const lastDestination = useRef<string | null>(null);
+  const countryStationsRef = useRef(countryStations);
+
+  useEffect(() => {
+    countryStationsRef.current = countryStations;
+  }, [countryStations]);
 
   useEffect(() => {
     let cancelled = false;
@@ -371,6 +419,15 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
 
       if (onTripPlanChange) onTripPlanChange({ plan: null, isCalculating: true });
 
+      // Reset queried regions ONLY if the destination has actually changed
+      const destKey = destination ? `${destination.latitude}_${destination.longitude}` : null;
+      if (lastDestination.current !== destKey) {
+        queriedRegions.current = [];
+        lastDestination.current = destKey;
+      }
+      const newGoogleStations: ChargingStation[] = [];
+      const sessionStations = [...countryStationsRef.current];
+
       const plan = await TripPlannerService.planSmartTrip({
         origin: center,
         destination,
@@ -379,13 +436,37 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
         targetReserveSoC,
         preferredMaxChargeSoC,
         airConActive: isAirConActive,
+        drivingMode,
         fetchRoute: fetchRealRoute,
-        // Search the already-fetched country-wide list locally instead of re-querying the
-        // network at every hop — a single broad fetch, reused for every leg of the route.
-        fetchStations: async (searchCenter, radiusKm) => withinRadiusOf(countryStations, searchCenter, radiusKm),
+        fetchStations: async (searchCenter, radiusKm) => {
+          // Check if we already queried Google Places near this center within 30km
+          const alreadyQueried = queriedRegions.current.some(
+            (c) => getDistanceKm(c, searchCenter) < 30
+          );
+
+          const localMatch = withinRadiusOf(sessionStations, searchCenter, radiusKm);
+
+          if (alreadyQueried) {
+            return localMatch;
+          }
+
+          queriedRegions.current.push(searchCenter);
+          const googleDC = await getGooglePlacesStations(searchCenter, radiusKm);
+          if (googleDC.length > 0) {
+            newGoogleStations.push(...googleDC);
+            sessionStations.push(...googleDC);
+            return mergeStationSources(localMatch, googleDC, localMatch.length + googleDC.length);
+          }
+          return localMatch;
+        },
       });
 
       if (cancelled) return;
+
+      if (newGoogleStations.length > 0) {
+        setCountryStations((prev) => mergeStationSources(prev, newGoogleStations, prev.length + newGoogleStations.length));
+      }
+
       setTripPlan(plan);
       if (onTripPlanChange) onTripPlanChange({ plan, isCalculating: false });
     };
@@ -394,7 +475,10 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
     return () => {
       cancelled = true;
     };
-  }, [destination, center.latitude, center.longitude, activeVehicle, currentSoC, targetReserveSoC, preferredMaxChargeSoC, isAirConActive, countryStationsLoaded, countryStations]);
+    // Re-plans on any input that feeds `planSmartTrip` — including `drivingMode`, so switching
+    // City/Mixed/Highway recalculates the whole trip (reachability, stop count, charge amounts),
+    // not just the main panel's standalone range figure.
+  }, [destination, center.latitude, center.longitude, activeVehicle, currentSoC, targetReserveSoC, preferredMaxChargeSoC, isAirConActive, drivingMode, countryStationsLoaded]);
 
   // Theme support
   const t = getTheme(themeMode);
@@ -510,20 +594,34 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
     }
   };
 
+  const mapInitialRegion = useMemo(() => {
+    return {
+      latitude: center.latitude,
+      longitude: center.longitude,
+      latitudeDelta: 0.2,
+      longitudeDelta: 0.2,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <View style={styles.container}>
       <MapView
         ref={mapRef}
         style={styles.map}
         provider={PROVIDER_DEFAULT}
-        initialRegion={{
-          latitude: center.latitude,
-          longitude: center.longitude,
-          latitudeDelta: 0.2,
-          longitudeDelta: 0.2,
-        }}
+        initialRegion={mapInitialRegion}
         onRegionChangeComplete={(nextRegion) => {
-          setRegion(nextRegion);
+          // Only update state if the center panned or delta changed by a significant threshold
+          // to prevent React Native Maps native-to-JS recursive render loop locks.
+          const latDiff = Math.abs(region.latitude - nextRegion.latitude);
+          const lngDiff = Math.abs(region.longitude - nextRegion.longitude);
+          const latDeltaDiff = Math.abs(region.latitudeDelta - nextRegion.latitudeDelta);
+          const lngDeltaDiff = Math.abs(region.longitudeDelta - nextRegion.longitudeDelta);
+
+          if (latDiff > 0.001 || lngDiff > 0.001 || latDeltaDiff > 0.001 || lngDeltaDiff > 0.001) {
+            setRegion(nextRegion);
+          }
         }}
         onPress={(e) => onSelectDestination(e.nativeEvent.coordinate)}
       >
@@ -706,6 +804,13 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
           </Marker>
         )}
       </MapView>
+
+      {!countryStationsLoaded && (
+        <View style={[styles.loadingPill, { backgroundColor: t.brand }]}>
+          <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 8 }} />
+          <Text style={styles.loadingPillText}>Fetching charging stations...</Text>
+        </View>
+      )}
 
       {/* Floating Station Detail Card (Smooth Slide-up & Fade-in animated) */}
       {renderedStation && (
@@ -1117,6 +1222,27 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 3,
     elevation: 4,
+  },
+  loadingPill: {
+    position: 'absolute',
+    top: 70,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    zIndex: 100,
+  },
+  loadingPillText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700',
   },
   recenterButton: {
     position: 'absolute',

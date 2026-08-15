@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { searchLocations } from '../utils/RouteService';
+import { useShallow } from 'zustand/react/shallow';
 import { useEVStore } from '../store/useEVStore';
 import { RecentSearchItem } from '../types/ev';
 import { Theme, radius, spacing } from '../theme/tokens';
@@ -53,7 +54,14 @@ export const LocationSearchField: React.FC<LocationSearchFieldProps> = ({
   size = 'compact',
   emptyHint,
 }) => {
-  const { recentSearches, addRecentSearch, removeRecentSearch, clearRecentSearches } = useEVStore();
+  const { recentSearches, addRecentSearch, removeRecentSearch, clearRecentSearches } = useEVStore(
+    useShallow((state) => ({
+      recentSearches: state.recentSearches,
+      addRecentSearch: state.addRecentSearch,
+      removeRecentSearch: state.removeRecentSearch,
+      clearRecentSearches: state.clearRecentSearches,
+    }))
+  );
 
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState(value);
