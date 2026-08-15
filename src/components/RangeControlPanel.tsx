@@ -72,11 +72,6 @@ export const RangeControlPanel: React.FC<IRangeControlPanelProps> = ({ onMaximiz
 
   return (
     <View
-      onTouchStart={() => {
-        if (onMaximize) {
-          onMaximize();
-        }
-      }}
       style={[styles.container, { backgroundColor: t.bg, borderColor: t.border }]}
     >
       <TouchableOpacity
