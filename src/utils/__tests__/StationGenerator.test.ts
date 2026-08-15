@@ -98,4 +98,10 @@ describe('generateMockStations Tesla flag', () => {
     expect(tesla?.isTeslaOnly).toBe(true);
     expect(others.every((s) => !s.isTeslaOnly)).toBe(true);
   });
+
+  it('marks every generated mock station as simulated', () => {
+    const stations = generateMockStations({ latitude: 13.7563, longitude: 100.5018 }, 500);
+    expect(stations.length).toBeGreaterThan(0);
+    expect(stations.every((s) => s.isSimulated === true)).toBe(true);
+  });
 });

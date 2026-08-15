@@ -287,6 +287,15 @@ export class TripPlannerService {
       const reachableDC = reachable.filter((s) => s.type === 'DC');
       let candidatePool = reachableDC.length > 0 ? reachableDC : reachable;
 
+      // Prefer a real, database-sourced station over a simulated placeholder whenever a real one
+      // is also reachable — a simulated station's coordinates are a synthetic bearing/distance
+      // offset with no ground-truth data behind them, so sending a driver's turn-by-turn
+      // navigation there can fail outright ("Can't seem to find a way there") even though it was
+      // fine as a stand-in for keeping trip planning itself from failing. Only actually used when
+      // it's the only option, same "last resort" pattern as the DC-over-AC preference above.
+      const realCandidates = candidatePool.filter((s) => !s.isSimulated);
+      if (realCandidates.length > 0) candidatePool = realCandidates;
+
       const preferNearestNoBacktrack = !!options.preferNearestNoBacktrack && hop === 0;
       if (preferNearestNoBacktrack) {
         const noBacktrack = candidatePool.filter((s) => {

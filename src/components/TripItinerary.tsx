@@ -64,7 +64,7 @@ export const TripItinerary: React.FC<TripItineraryProps> = ({
     );
   }
 
-  const handleStartNavigation = () => {
+  const openNavigation = () => {
     if (plan.legs.length === 0) return;
     const origin = plan.legs[0].from;
     const destination = plan.legs[plan.legs.length - 1].to;
@@ -76,6 +76,25 @@ export const TripItinerary: React.FC<TripItineraryProps> = ({
     Linking.openURL(url).catch((err) =>
       Alert.alert('Error', 'Cannot open Google Maps: ' + err.message)
     );
+  };
+
+  const handleStartNavigation = () => {
+    // A simulated stop's coordinates are a synthetic placeholder, not a confirmed real charger —
+    // Google Maps may fail to route there at all ("Can't seem to find a way there"). Warn up
+    // front rather than let that show up as a confusing surprise mid-navigation.
+    const hasSimulatedStop = plan.stops.some((stop) => stop.station.isSimulated);
+    if (hasSimulatedStop) {
+      Alert.alert(
+        'Estimated Charging Location',
+        'This route includes a simulated charging stop that isn\'t a confirmed real-world station — Google Maps may not be able to find a route to it. Continue anyway?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Continue', onPress: openNavigation },
+        ]
+      );
+      return;
+    }
+    openNavigation();
   };
 
   if (plan.directRoute) {

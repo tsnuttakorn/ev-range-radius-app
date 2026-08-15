@@ -882,6 +882,11 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
                 <Text style={styles.detailBadgeText}>Tesla Only</Text>
               </View>
             )}
+            {renderedStation.isSimulated && (
+              <View style={[styles.detailBadge, styles.badgeSimulated]}>
+                <Text style={styles.detailBadgeText}>Simulated</Text>
+              </View>
+            )}
             {renderedStation.slots && (
               <Text style={[styles.detailDistance, { color: subTextColor }]}>
                 <FontAwesome name="cube" size={10} color={subTextColor} /> {renderedStation.slots} {renderedStation.slots > 1 ? 'slots' : 'slot'}
@@ -921,17 +926,34 @@ export const EVMapAdapter = forwardRef<IMapRef, IMapProviderProps>(({
               ? { latitude: primaryStop.latitude, longitude: primaryStop.longitude }
               : undefined;
 
+            const openDirections = () => {
+              const url = buildGoogleMapsDirectionsUrl(
+                { latitude: renderedStation.latitude, longitude: renderedStation.longitude },
+                { origin: directionsOrigin }
+              );
+              Linking.openURL(url).catch((err) =>
+                Alert.alert('Error', 'Cannot open Google Maps: ' + err.message)
+              );
+            };
+
             return (
               <TouchableOpacity
                 style={styles.directionsButton}
                 onPress={() => {
-                  const url = buildGoogleMapsDirectionsUrl(
-                    { latitude: renderedStation.latitude, longitude: renderedStation.longitude },
-                    { origin: directionsOrigin }
-                  );
-                  Linking.openURL(url).catch((err) =>
-                    Alert.alert('Error', 'Cannot open Google Maps: ' + err.message)
-                  );
+                  // See `isSimulated` on `ChargingStation` — a synthetic placeholder location,
+                  // not a confirmed real charger, so Google Maps may fail to route there at all.
+                  if (renderedStation.isSimulated) {
+                    Alert.alert(
+                      'Estimated Charging Location',
+                      "This is a simulated placeholder location, not a confirmed real-world station — Google Maps may not be able to find a route to it. Continue anyway?",
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Continue', onPress: openDirections },
+                      ]
+                    );
+                    return;
+                  }
+                  openDirections();
                 }}
               >
                 <Text style={styles.directionsButtonText} numberOfLines={1} ellipsizeMode="tail">
@@ -1087,6 +1109,9 @@ const styles = StyleSheet.create({
   },
   badgeTeslaOnly: {
     backgroundColor: mapColors.routeNeedsCharge, // amber — "restricted", same caution meaning it carries elsewhere in the app
+  },
+  badgeSimulated: {
+    backgroundColor: mapColors.textTertiary, // neutral gray — "not a confirmed real station"
   },
   badgeAvailable: {
     backgroundColor: mapColors.statusAvailable,

@@ -237,6 +237,78 @@ describe('TripPlannerService.planSmartTrip', () => {
     expect(plan.stops[0]?.station.id).toBe('open-ccs');
   });
 
+  it('prefers a real, database-sourced station over a simulated placeholder when both are reachable', async () => {
+    const origin: MapCoordinates = { latitude: 0, longitude: 0 };
+    const destination: MapCoordinates = { latitude: 400 / 111, longitude: 0 };
+    const simulatedStation = makeStation({
+      id: 'simulated-station',
+      name: 'Simulated Fast Charger',
+      latitude: 200 / 111,
+      longitude: 0,
+      type: 'DC',
+      powerKW: 150,
+      status: 'AVAILABLE',
+      isSimulated: true,
+    });
+    const realStation = makeStation({
+      id: 'real-station',
+      name: 'Real Fast Charger',
+      latitude: 190 / 111, // see note above on avoiding the synthetic route's exact midpoint
+      longitude: 0,
+      type: 'DC',
+      powerKW: 150,
+      status: 'AVAILABLE',
+    });
+
+    const plan = await TripPlannerService.planSmartTrip({
+      origin,
+      destination,
+      vehicle,
+      currentSoC: 90,
+      targetReserveSoC: 15,
+      airConActive: false,
+      fetchRoute: makeFetchRoute(),
+      fetchStations: async (center) => {
+        simulatedStation.distanceKm = straightDistanceKm(center, simulatedStation);
+        realStation.distanceKm = straightDistanceKm(center, realStation);
+        return [simulatedStation, realStation];
+      },
+    });
+
+    expect(plan.stops[0]?.station.id).toBe('real-station');
+  });
+
+  it('falls back to a simulated station when it is the only reachable option', async () => {
+    const origin: MapCoordinates = { latitude: 0, longitude: 0 };
+    const destination: MapCoordinates = { latitude: 400 / 111, longitude: 0 };
+    const simulatedStation = makeStation({
+      id: 'simulated-station',
+      name: 'Simulated Fast Charger',
+      latitude: 200 / 111,
+      longitude: 0,
+      type: 'DC',
+      powerKW: 150,
+      status: 'AVAILABLE',
+      isSimulated: true,
+    });
+
+    const plan = await TripPlannerService.planSmartTrip({
+      origin,
+      destination,
+      vehicle,
+      currentSoC: 90,
+      targetReserveSoC: 15,
+      airConActive: false,
+      fetchRoute: makeFetchRoute(),
+      fetchStations: async (center) => {
+        simulatedStation.distanceKm = straightDistanceKm(center, simulatedStation);
+        return [simulatedStation];
+      },
+    });
+
+    expect(plan.stops[0]?.station.id).toBe('simulated-station');
+  });
+
   it('inserts a charging stop and computes a sensible charge window for a long trip', async () => {
     // Synthetic straight-north path: effective range at 90% SoC / 15% reserve is ~284km,
     // so a 400km trip needs exactly one stop if the charger sits partway along the route.

@@ -20,6 +20,15 @@ export interface ChargingStation {
    * compatibility", not "confirmed open to everyone", so callers should treat it like `false` for
    * filtering but shouldn't display it as a confident "works for any EV" claim. */
   isTeslaOnly?: boolean;
+  /** True for a station synthesized by `generateMockStations` rather than sourced from a real
+   * charging-station database (OCM/OSM/Google). Its coordinates are a pure compass-bearing +
+   * distance offset from a center point with no ground-truth data behind them — not tied to any
+   * actual road, building, or charger — so while it's useful as a placeholder to keep trip
+   * planning from failing outright when real data is sparse or unavailable, it should never be
+   * silently handed to a turn-by-turn navigation app as a real destination: Google Maps may not
+   * be able to compute a driving route to it at all ("Can't seem to find a way there"), since
+   * there's no guarantee the point sits anywhere near an accessible road. */
+  isSimulated?: boolean;
 }
 
 /**
@@ -178,6 +187,7 @@ export function generateMockStations(center: MapCoordinates, maxRadiusKm: number
       status: template.status,
       distanceKm: getDistanceKm(center, { latitude, longitude }),
       isTeslaOnly: 'isTeslaOnly' in template ? template.isTeslaOnly : undefined,
+      isSimulated: true,
     });
   });
 
