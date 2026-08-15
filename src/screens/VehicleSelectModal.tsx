@@ -494,6 +494,11 @@ const styles = StyleSheet.create({
   },
   flexHalf: {
     flex: 1,
+    // Bottom-anchors each column's content, so the two TextInputs stay aligned on the same row
+    // even if one label wraps to two lines and the other doesn't (longer text, larger
+    // accessibility font size, etc.) — the row's default 'stretch' cross-axis already gives both
+    // columns equal height; this just decides where each column's content sits within it.
+    justifyContent: 'flex-end',
   },
   segmentedContainer: {
     flexDirection: 'row',
