@@ -49,6 +49,7 @@ export const HomeScreen: React.FC = () => {
   const [destQuery, setDestQuery] = useState('');
   const [tripPlan, setTripPlan] = useState<SmartTripPlan | null>(null);
   const [isPlanningTrip, setIsPlanningTrip] = useState(false);
+  const [isTripItineraryMinimized, setIsTripItineraryMinimized] = useState(false);
   // On by default — the car pin follows the device's real GPS position continuously from app
   // start. Automatically turns itself off if the user manually overrides the position (dragging
   // the pin or picking a custom "FROM" start point), so it doesn't fight that mid-trip; the
@@ -72,6 +73,7 @@ export const HomeScreen: React.FC = () => {
     setDestQuery('');
     setStartQuery('');
     setTripPlan(null);
+    setIsTripItineraryMinimized(false);
   };
 
   // Lets the backup-route card in the itinerary jump the map to that station's location so it
@@ -163,17 +165,36 @@ export const HomeScreen: React.FC = () => {
             )}
           </View>
 
-          <View style={[styles.dividerLine, { backgroundColor: t.borderSubtle }]} />
+          {destination && (
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setIsTripItineraryMinimized(!isTripItineraryMinimized)}
+              style={styles.itineraryHeader}
+            >
+              <View style={styles.itineraryHeaderLeft}>
+                <FontAwesome name="map-signs" size={12} color={t.brand} style={{ marginRight: 6 }} />
+                <Text style={[styles.itineraryHeaderText, { color: t.textSecondary }]}>
+                  {isTripItineraryMinimized ? 'Show Trip Itinerary' : 'Hide Trip Itinerary'}
+                </Text>
+              </View>
+              <FontAwesome name={isTripItineraryMinimized ? 'chevron-down' : 'chevron-up'} size={12} color={t.textTertiary} />
+            </TouchableOpacity>
+          )}
 
-          <ScrollView style={{ maxHeight: isWide ? height * 0.50 : SCREEN_HEIGHT * 0.45 }} showsVerticalScrollIndicator={true} keyboardShouldPersistTaps="handled">
-            <TripItinerary
-              plan={tripPlan}
-              isCalculating={isPlanningTrip}
-              theme={t}
-              onCompareBackupStation={handleCompareBackupStation}
-              comparingStationId={selectedStation?.id ?? null}
-            />
-          </ScrollView>
+          {destination && !isTripItineraryMinimized && (
+            <>
+              <View style={[styles.dividerLine, { backgroundColor: t.borderSubtle }]} />
+              <ScrollView style={{ maxHeight: isWide ? height * 0.50 : SCREEN_HEIGHT * 0.45 }} showsVerticalScrollIndicator={true} keyboardShouldPersistTaps="handled">
+                <TripItinerary
+                  plan={tripPlan}
+                  isCalculating={isPlanningTrip}
+                  theme={t}
+                  onCompareBackupStation={handleCompareBackupStation}
+                  comparingStationId={selectedStation?.id ?? null}
+                />
+              </ScrollView>
+            </>
+          )}
         </>
       )}
     </View>
@@ -390,6 +411,22 @@ const styles = StyleSheet.create({
   },
   useCurrentText: {
     fontSize: 10,
+    fontWeight: '700',
+  },
+  itineraryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    marginTop: 4,
+  },
+  itineraryHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  itineraryHeaderText: {
+    fontSize: 12,
     fontWeight: '700',
   },
   dividerLine: {
