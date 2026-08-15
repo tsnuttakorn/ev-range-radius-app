@@ -275,6 +275,9 @@ export const HomeScreen: React.FC = () => {
         onTripPlanChange={({ plan, isCalculating }) => {
           setTripPlan(plan);
           setIsPlanningTrip(isCalculating);
+          if (!isCalculating && plan && plan.reachable) {
+            setIsTripItineraryMinimized(false);
+          }
         }}
         onLoadingStationsChange={setIsLoadingStations}
       />
