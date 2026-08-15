@@ -3,7 +3,7 @@ import { ChargingStation, getDistanceKm } from './StationGenerator';
 
 // Register for a free key at https://openchargemap.org
 // If empty, the service will fall back to using generateMockStations automatically so the app still works.
-export const OPEN_CHARGE_MAP_API_KEY = 'fb4f08e6-4d2b-49f3-81b6-3f412c0984b2';
+export const OPEN_CHARGE_MAP_API_KEY = process.env.EXPO_PUBLIC_OCM_API_KEY || '';
 
 const DEFAULT_FETCH_TIMEOUT_MS = 4000;
 
