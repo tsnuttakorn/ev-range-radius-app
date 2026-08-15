@@ -17,14 +17,14 @@ describe('buildGoogleMapsDirectionsUrl', () => {
     expect(url).toContain('origin=13.7563%2C100.5018');
   });
 
-  it('joins multiple waypoints with a pipe, in order', () => {
+  it('joins multiple waypoints with a pipe, in order, with optimize:false so Google Maps cannot silently reorder them', () => {
     const origin = { latitude: 13.7563, longitude: 100.5018 };
     const waypoints = [
       { latitude: 15.0, longitude: 99.5 },
       { latitude: 16.5, longitude: 99.0 },
     ];
     const url = buildGoogleMapsDirectionsUrl(destination, { origin, waypoints });
-    expect(url).toContain(encodeURIComponent('15,99.5|16.5,99'));
+    expect(url).toContain(encodeURIComponent('optimize:false|15,99.5|16.5,99'));
   });
 
   it('omits the waypoints param entirely when the list is empty', () => {
