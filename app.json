@@ -27,6 +27,11 @@
         "ACCESS_FINE_LOCATION"
       ],
       "package": "com.anonymous.evrangeradiusapp",
+      "config": {
+        "googleMaps": {
+          "apiKey": "YOUR_GOOGLE_MAPS_API_KEY_HERE"
+        }
+      },
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundImage": "./assets/adaptive-icon-background.png",
