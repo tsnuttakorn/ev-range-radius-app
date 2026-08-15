@@ -12,3 +12,9 @@
 -keep class com.facebook.react.turbomodule.** { *; }
 
 # Add any project specific keep options here:
+
+# Android for Cars App Library keep rules
+-keep class androidx.car.app.** { *; }
+-keep class com.anonymous.evrangeradiusapp.EVCarAppService { *; }
+-keep class com.anonymous.evrangeradiusapp.EVMapScreen { *; }
+-keep class com.anonymous.evrangeradiusapp.EVSearchScreen { *; }
